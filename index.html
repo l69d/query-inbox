@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Query inbox</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--line:#e3e6ea;--ink:#1f2328;--muted:#6b7280;--blue:#2563eb;--green:#16a34a;
+  --red:#dc2626;--amber:#b45309;--code:#f6f8fa;--cte:#dbeafe;--cte-b:#3b82f6;--tbl:#f3f4f6;--tbl-b:#9ca3af;--fin:#dcfce7;--fin-b:#16a34a}
+*{box-sizing:border-box}
+body{margin:0;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;gap:16px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);height:52px}
+header h1{font-size:16px;margin:0;white-space:nowrap}
+#q{flex:0 1 360px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}
+main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 52px)}
+#list{overflow:auto;border-right:1px solid var(--line);background:var(--card)}
+.row{display:flex;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.row:hover{background:#f2f6ff}.row.sel{background:#e8efff;box-shadow:inset 3px 0 var(--blue)}
+.grow{flex:1;min-width:0}.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.desc,.dir{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{color:#444;margin-top:1px}.dir{color:#999}
+.when{color:var(--muted);font-size:11px;flex-shrink:0;text-align:right;width:58px}
+.tag{font-size:10px;padding:1px 5px;border-radius:4px;margin-left:5px;font-weight:500;vertical-align:1px}
+.new{background:#fef3c7;color:#92400e}.wt{background:#ede9fe;color:#5b21b6}.ran{opacity:.55}
+button{flex-shrink:0;padding:5px 11px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-size:13px}
+button.done{background:var(--green);border-color:var(--green)}
+#viewer{overflow:auto;padding:0 20px 40px}
+.empty{color:var(--muted);text-align:center;margin-top:30vh}
+.vhead{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;z-index:2;border-bottom:1px solid var(--line);margin-bottom:14px}
+.vtitle{display:flex;gap:12px;align-items:center}.vtitle h2{font-size:17px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.vsub{color:var(--muted);font-size:12px;margin-top:3px}
+.tabs{display:flex;gap:4px;margin-top:10px}
+.tabs a{padding:5px 14px;border-radius:6px;cursor:pointer;color:var(--muted);font-weight:500;user-select:none}
+.tabs a.on{background:var(--card);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.issues{border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+.issues.bad{background:#fef2f2;border:1px solid #fecaca}.issues.warn{background:#fffbeb;border:1px solid #fde68a}
+.issues.ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+.issues b{display:block;margin-bottom:4px}.issues ul{margin:0;padding-left:18px}.issues li{margin:2px 0}
+.issues .lint{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:12px;scroll-margin-top:130px}
+.card.flash{animation:flash 1.2s}@keyframes flash{0%{box-shadow:0 0 0 3px var(--blue)}100%{box-shadow:0 0 0 0 transparent}}
+.card h3{margin:0 0 8px;font-size:15px;display:flex;gap:8px;align-items:center}
+.num{background:var(--ink);color:#fff;border-radius:50%;width:22px;height:22px;font-size:11px;display:inline-flex;align-items:center;justify-content:center}
+.kind{font-size:11px;font-weight:500;padding:1px 7px;border-radius:4px}.k-cte{background:var(--cte);color:#1e40af}.k-final{background:var(--fin);color:#166534}
+.jump{margin-left:auto;font-size:12px;font-weight:400;color:var(--blue);cursor:pointer}
+.kv{display:grid;grid-template-columns:90px 1fr;gap:6px 12px;font-size:13px;align-items:start}
+.kv>span:nth-child(odd){color:var(--muted);font-size:12px;padding-top:3px}
+.chip{display:inline-block;font:12px ui-monospace,Menlo,monospace;padding:2px 7px;border-radius:5px;margin:0 4px 4px 0;background:var(--tbl);border:1px solid var(--line)}
+.chip.c{background:var(--cte);border-color:#bfdbfe;cursor:pointer}
+code,.code{font:12px/1.5 ui-monospace,Menlo,monospace}
+.code{background:var(--code);border-radius:6px;padding:6px 9px;white-space:pre-wrap;word-break:break-word}
+table.joins{border-collapse:collapse;width:100%}table.joins td{padding:3px 8px 3px 0;vertical-align:top}table.joins td.jt{width:1%}
+.jt{font:600 11px ui-monospace,Menlo,monospace;color:var(--amber);white-space:nowrap}
+.part{border-top:1px dashed var(--line);margin-top:10px;padding-top:10px}.part-h{font-size:12px;color:var(--muted);margin-bottom:6px}
+details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:4px}
+.cardissue{background:#fef2f2;color:#991b1b;border-radius:6px;padding:5px 9px;font-size:12px;margin-bottom:8px}
+#flow{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:auto;padding:10px}
+#flow svg text{font:12px -apple-system,sans-serif;pointer-events:none}
+#flow .node{cursor:pointer}#flow .node:hover rect{stroke-width:2.5}
+#flow path{fill:none;stroke:#9ca3af;stroke-width:1.4}#flow path.hi{stroke:var(--blue);stroke-width:2.4}
+.legend{font-size:12px;color:var(--muted);margin:8px 2px 0}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin:0 4px 0 12px;border:1px solid}
+.sql{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 0;font:12.5px/1.55 ui-monospace,Menlo,monospace;overflow:auto}
+.ln{display:flex;scroll-margin-top:140px}.ln:hover{background:#f6f8fa}.ln.err{background:#fee2e2}.ln.flash{animation:flash 1.2s}
+.ln .n{width:46px;flex-shrink:0;text-align:right;padding-right:14px;color:#b0b7c0;user-select:none}
+.ln .t{white-space:pre;padding-right:16px}
+.kw{color:#7c3aed;font-weight:600}.fn{color:#0369a1}.str{color:#15803d}.num-l{color:#c2410c}.com{color:#8b949e;font-style:italic}
+</style>
+</head>
+<body>
+<header><h1>Query inbox</h1><input id="q" placeholder="filter by name / folder"></header>
+<main>
+  <div id="list"></div>
+  <div id="viewer"><div class="empty">Click a query to see its flow, steps and SQL here.</div></div>
+</main>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ago = t => { const s = Date.now()/1000 - t;
+  return s < 60 ? 'just now' : s < 3600 ? Math.floor(s/60)+' min ago' : s < 86400 ? Math.floor(s/3600)+' h ago' : Math.floor(s/86400)+' d ago'; };
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+let files = [], current = null, tab = (location.hash.match(/t=(flow|steps|sql)/) || [])[1] || store.get('tab') || 'flow';
+
+// ---------- list ----------
+async function load() {
+  files = await (await fetch('/api/list')).json();
+  drawList();
+  if (current) {  // the open query was edited: refresh the viewer in place
+    const f = files.find(f => f.path === current.path);
+    if (f && f.mtime !== current.mtime) open(f, true);
+  }
+}
+function copyKey(f) { return 'copied:' + f.path + ':' + f.mtime; }
+async function copy(f, btn, row) {
+  const text = await (await fetch('/api/file?p=' + encodeURIComponent(f.path))).text();
+  await navigator.clipboard.writeText(text);
+  store.set(copyKey(f), Date.now()/1000);
+  drawList(); if (current && current.path === f.path) drawHead();
+}
+function drawList() {
+  const q = $('#q').value.toLowerCase(), list = $('#list');
+  list.innerHTML = '';
+  for (const f of files.filter(f => f.path.toLowerCase().includes(q))) {
+    const parts = f.path.split('/'), name = parts.pop();
+    const row = document.createElement('div');
+    row.className = 'row' + (current && current.path === f.path ? ' sel' : '');
+    row.innerHTML = `<div class="grow"><div class="name"></div><div class="desc"></div><div class="dir"></div></div><div class="when"></div><button>Copy</button>`;
+    const nm = $('.name', row); nm.textContent = name;
+    if (Date.now()/1000 - f.mtime < 900) nm.insertAdjacentHTML('beforeend', '<span class="tag new">new</span>');
+    if (f.worktree) nm.insertAdjacentHTML('beforeend', `<span class="tag wt">${esc(f.worktree)}</span>`);
+    $('.desc', row).textContent = f.desc;
+    $('.dir', row).textContent = (f.worktree ? parts.slice(3) : parts).join('/');
+    $('.when', row).textContent = ago(f.mtime);
+    const btn = $('button', row), seen = store.get(copyKey(f));
+    if (seen) { btn.textContent = 'Copied'; btn.className = 'done'; row.classList.add('ran'); }
+    btn.onclick = e => { e.stopPropagation(); copy(f, btn, row); };
+    row.onclick = () => open(f);
+    list.appendChild(row);
+  }
+}
+
+// ---------- viewer ----------
+async function open(f, keepScroll) {
+  const v = $('#viewer'), top = v.scrollTop;
+  const [sql, viz] = await Promise.all([
+    fetch('/api/file?p=' + encodeURIComponent(f.path)).then(r => r.text()),
+    fetch('/api/viz?p=' + encodeURIComponent(f.path)).then(r => r.json())]);
+  current = { ...f, mtime: viz.mtime ?? f.mtime, sql, viz };
+  location.hash = 'p=' + encodeURIComponent(f.path);
+  drawList(); drawViewer();
+  if (keepScroll) v.scrollTop = top; else v.scrollTop = 0;
+}
+function drawHead() {
+  const f = current, seen = store.get(copyKey(f));
+  const head = $('.vhead');
+  head.innerHTML = `<div class="vtitle"><h2>${esc(f.path.split('/').pop())}</h2><button class="${seen ? 'done' : ''}">${seen ? 'Copied ' + ago(+seen) : 'Copy query'}</button></div>
+    <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${current.sql.split('\n').length} lines · ${esc(f.viz.dialect === 'spark' ? 'Spark SQL' : 'BigQuery')}</div>
+    <div class="tabs">${['flow','steps','sql'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${{flow:'Flow',steps:'Steps',sql:'SQL'}[t]}</a>`).join('')}</div>`;
+  $('button', head).onclick = () => copy(f);
+  head.querySelectorAll('.tabs a').forEach(a => a.onclick = () => { tab = a.dataset.t; store.set('tab', tab); drawViewer(); });
+}
+function drawViewer() {
+  const v = $('#viewer'), viz = current.viz;
+  v.innerHTML = '<div class="vhead"></div><div id="issues"></div><div id="body"></div>';
+  drawHead();
+  // issues: parse error > built-in checks > your --lint notes (shown softer)
+  const checks = viz.issues.filter(i => !i.startsWith('lint:')), lint = viz.issues.filter(i => i.startsWith('lint:'));
+  let html = '';
+  if (viz.error) html = `<div class="issues bad"><b>Doesn't parse${viz.error.line ? ` — line ${viz.error.line}` : ''}</b>${esc(viz.error.message)}</div>`;
+  else if (checks.length || lint.length) html = `<div class="issues ${checks.length ? 'bad' : 'warn'}"><b>${checks.length ? checks.length + ' thing' + (checks.length > 1 ? 's' : '') + ' to check' : 'Only lint notes'}</b><ul>${
+      checks.map(i => `<li>${esc(i)}</li>`).join('')}${lint.map(i => `<li class="lint">${esc(i)}</li>`).join('')}</ul></div>`;
+  else html = `<div class="issues ok">No issues found — parses cleanly, joins have conditions, lint is clean.</div>`;
+  $('#issues').innerHTML = html;
+  const body = $('#body');
+  if (tab === 'sql' || viz.error) { drawSQL(body); if (viz.error && viz.error.line) goLine(viz.error.line, false); if (viz.error && tab !== 'sql') { tab = 'sql'; drawHead(); } }
+  else if (tab === 'steps') drawSteps(body);
+  else drawFlow(body);
+}
+
+// ---------- flow ----------
+function drawFlow(body) {
+  const steps = current.viz.steps, names = new Set(steps.map(s => s.name));
+  const nodes = new Map();  // name -> {kind, col, row}
+  const depth = {};
+  for (const s of steps) {
+    for (const r of s.reads) if (!names.has(r) && !nodes.has(r)) nodes.set(r, { name: r, kind: 'table' });
+    depth[s.name] = 1 + Math.max(0, ...s.reads.map(r => names.has(r) ? (depth[r] ?? 0) : 0));
+    nodes.set(s.name, { name: s.name, kind: s.kind, step: s });
+  }
+  const cols = [];
+  for (const n of nodes.values()) {
+    n.col = n.kind === 'table' ? 0 : depth[n.name];
+    (cols[n.col] ||= []).push(n);
+  }
+  // top -> bottom: each layer is a row (pipelines are deep and narrow, the pane scrolls down)
+  const W = 210, H = 42, GX = 18, GY = 46, PAD = 12;
+  const widest = Math.max(...cols.map(c => (c || []).length));
+  cols.forEach((c, ci) => (c || []).forEach((n, ri) => {
+    n.x = PAD + (widest - c.length) * (W + GX) / 2 + ri * (W + GX); n.y = PAD + ci * (H + GY); }));
+  const width = PAD * 2 + widest * (W + GX) - GX, height = PAD * 2 + cols.length * (H + GY) - GY;
+  const short = s => s.length > 29 ? s.slice(0, 28) + '…' : s;
+  let edges = '', boxes = '';
+  for (const s of steps) for (const r of s.reads) {
+    const a = nodes.get(r), b = nodes.get(s.name), x1 = a.x + W/2, y1 = a.y + H, x2 = b.x + W/2, y2 = b.y, my = (y1 + y2) / 2;
+    edges += `<path data-a="${esc(r)}" data-b="${esc(s.name)}" d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" marker-end="url(#arr)"/>`;
+  }
+  for (const n of nodes.values()) {
+    const [fill, stroke] = n.kind === 'table' ? ['var(--tbl)', 'var(--tbl-b)'] : n.kind === 'final' ? ['var(--fin)', 'var(--fin-b)'] : ['var(--cte)', 'var(--cte-b)'];
+    const label = n.kind === 'table' ? n.name.split('.').pop() : n.kind === 'final' ? 'final SELECT' : n.name;
+    let sub = n.kind === 'table' ? (n.name.split('.').slice(0, -1).join('.') || 'table') : '';
+    if (n.step) { const p = n.step.parts[0] || {}; sub = [n.step.union ? 'UNION ×' + n.step.parts.length : '', (p.columns || []).length + ((p.columns || []).length === 1 ? ' col' : ' cols'),
+        p.group_by && p.group_by.length ? 'GROUP BY' : '', p.where ? 'WHERE' : '', p.joins && p.joins.length ? p.joins.length + ' join' : ''].filter(Boolean).join(' · '); }
+    boxes += `<g class="node" data-n="${esc(n.name)}"><title>${esc(n.name)}</title><rect x="${n.x}" y="${n.y}" width="${W}" height="${H}" rx="7" fill="${fill}" stroke="${stroke}"/>
+      <text x="${n.x + 10}" y="${n.y + 16}" font-weight="600">${esc(short(label))}</text><text x="${n.x + 10}" y="${n.y + 31}" fill="#6b7280" font-size="11">${esc(short(sub))}</text></g>`;
+  }
+  body.innerHTML = `<div id="flow"><svg width="${width}" height="${height}" style="display:block;margin:0 auto"><defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9ca3af" stroke="none"/></marker></defs>${edges}${boxes}</svg></div>
+    <div class="legend">Data flows top → bottom. <i style="background:var(--tbl);border-color:var(--tbl-b)"></i>source table<i style="background:var(--cte);border-color:var(--cte-b)"></i>CTE step<i style="background:var(--fin);border-color:var(--fin-b)"></i>final output · hover to trace, click a step to open it</div>`;
+  body.querySelectorAll('.node').forEach(g => {
+    const n = g.dataset.n;
+    g.onmouseenter = () => body.querySelectorAll('path[data-a]').forEach(p => p.classList.toggle('hi', p.dataset.a === n || p.dataset.b === n));
+    g.onmouseleave = () => body.querySelectorAll('path.hi').forEach(p => p.classList.remove('hi'));
+    g.onclick = () => { if (names.has(n)) goStep(n); };
+  });
+}
+
+// ---------- steps ----------
+function drawSteps(body) {
+  const steps = current.viz.steps, names = new Set(steps.map(s => s.name));
+  const chip = r => names.has(r) ? `<span class="chip c" data-go="${esc(r)}">${esc(r)}</span>` : `<span class="chip" title="${esc(r)}">${esc(r.split('.').pop())}</span>`;
+  const code = s => `<div class="code">${hl(s)}</div>`;
+  body.innerHTML = steps.map((s, i) => {
+    const mine = current.viz.issues.filter(x => x.startsWith(s.name + ':') || x.startsWith(s.name + ' (union'));
+    const parts = s.parts.map((p, pi) => `<div class="${pi ? 'part' : ''}">${s.union ? `<div class="part-h">${pi ? 'UNION part ' + (pi + 1) : 'UNION part 1'}</div>` : ''}<div class="kv">
+      <span>reads</span><div>${p.reads.map(chip).join('') || '<span class="chip">— (constants)</span>'}</div>
+      ${p.joins.length ? `<span>joins</span><table class="joins">${p.joins.map(j => `<tr><td class="jt">${esc(j.type)}</td><td><code>${esc(j.target)}</code>${j.on ? `<div class="code" style="margin-top:3px">ON ${hl(j.on)}</div>` : j.using.length ? ` USING (${esc(j.using.join(', '))})` : ''}</td></tr>`).join('')}</table>` : ''}
+      ${p.where ? `<span>filters</span>${code(p.where)}` : ''}
+      ${p.group_by.length ? `<span>group by</span>${code(p.group_by.join(', '))}` : ''}
+      ${p.having ? `<span>having</span>${code(p.having)}` : ''}
+      ${p.qualify ? `<span>qualify</span>${code(p.qualify)}` : ''}
+      <span>outputs</span><div>${p.distinct ? '<span class="chip">DISTINCT</span>' : ''}${p.columns.map(c => `<span class="chip">${esc(c)}</span>`).join('')}
+        <details><summary>${p.columns.length} column${p.columns.length === 1 ? '' : 's'} — show expressions</summary>${code(p.column_sql.join(',\n'))}</details></div>
+    </div></div>`).join('');
+    return `<div class="card" id="step-${esc(s.name)}"><h3><span class="num">${i + 1}</span>${s.kind === 'final' ? 'final SELECT' : esc(s.name)}<span class="kind k-${s.kind}">${s.kind === 'final' ? 'output' : 'CTE'}</span><span class="jump" data-line="${s.line}">line ${s.line} ↗</span></h3>
+      ${mine.map(x => `<div class="cardissue">${esc(x.slice(x.indexOf(':') + 1))}</div>`).join('')}${parts}</div>`;
+  }).join('');
+  body.querySelectorAll('[data-go]').forEach(c => c.onclick = () => goStep(c.dataset.go));
+  body.querySelectorAll('[data-line]').forEach(c => c.onclick = () => goLine(+c.dataset.line));
+}
+function goStep(n) {
+  if (tab !== 'steps') { tab = 'steps'; store.set('tab', tab); drawViewer(); }
+  const el = document.getElementById('step-' + n); if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+
+// ---------- sql ----------
+const KW = new Set(('select from where group by order having qualify limit with as on join left right inner outer full cross union all distinct and or not in is null ' +
+  'case when then else end between like ilike exists cast safe_cast over partition rows range preceding following current row unnest interval true false asc desc ' +
+  'using except intersect window lateral view insert into values create table replace if struct array date timestamp int64 string float64 numeric bool').split(' '));
+function hlLine(line, state) {
+  let out = '', i = 0;
+  if (state.block) {
+    const end = line.indexOf('*/'); if (end < 0) return `<span class="com">${esc(line)}</span>`;
+    out += `<span class="com">${esc(line.slice(0, end + 2))}</span>`; i = end + 2; state.block = false;
+  }
+  const re = /(--.*$)|(\/\*)|('(?:[^'\\]|\\.)*'?|"(?:[^"\\]|\\.)*"?)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(?=\s*\()|([A-Za-z_][A-Za-z0-9_]*)/g;
+  re.lastIndex = i; let m, last = i;
+  while ((m = re.exec(line))) {
+    out += esc(line.slice(last, m.index)); last = re.lastIndex;
+    if (m[1]) out += `<span class="com">${esc(m[1])}</span>`;
+    else if (m[2]) { const end = line.indexOf('*/', m.index + 2);
+      if (end < 0) { out += `<span class="com">${esc(line.slice(m.index))}</span>`; state.block = true; return out; }
+      out += `<span class="com">${esc(line.slice(m.index, end + 2))}</span>`; last = re.lastIndex = end + 2; }
+    else if (m[3]) out += `<span class="str">${esc(m[3])}</span>`;
+    else if (m[4]) out += `<span class="num-l">${m[4]}</span>`;
+    else if (m[5]) out += KW.has(m[5].toLowerCase()) ? `<span class="kw">${esc(m[5])}</span>` : `<span class="fn">${esc(m[5])}</span>`;
+    else out += KW.has(m[6].toLowerCase()) ? `<span class="kw">${esc(m[6])}</span>` : esc(m[6]);
+  }
+  return out + esc(line.slice(last));
+}
+const hl = s => { const st = {}; return String(s).split('\n').map(l => hlLine(l, st)).join('\n'); };
+function drawSQL(body) {
+  const st = {}, err = current.viz.error && current.viz.error.line;
+  body.innerHTML = `<div class="sql">${current.sql.replace(/\n$/, '').split('\n').map((l, i) =>
+    `<div class="ln${err === i + 1 ? ' err' : ''}" id="L${i + 1}"><span class="n">${i + 1}</span><span class="t">${hlLine(l, st) || ' '}</span></div>`).join('')}</div>`;
+}
+function goLine(n, smooth = true) {
+  if (tab !== 'sql') { tab = 'sql'; store.set('tab', tab); drawViewer(); }
+  const el = document.getElementById('L' + n); if (!el) return;
+  el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+
+$('#q').oninput = drawList;
+(async () => {
+  await load();
+  const p = decodeURIComponent((location.hash.match(/p=([^&]+)/) || [])[1] || '');
+  const f = p && (files.find(f => f.path === p) || { path: p, mtime: 0, desc: '' });
+  if (f) open(f);
+  setInterval(load, 10000);
+})();
+</script>
+</body>
+</html>
