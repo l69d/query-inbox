@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>.xlsx inbox</title>
+<title>.xlsx / .csv inbox</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--line:#e3e6ea;--ink:#1f2328;--muted:#6b7280;--blue:#2563eb;--green:#16a34a;--grid:#e5e7eb;--hdr:#f3f4f6}
 *{box-sizing:border-box}
@@ -21,7 +21,7 @@ main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 52px)}
 .desc,.dir{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{color:#444;margin-top:1px}.dir{color:#999}
 .when{color:var(--muted);font-size:11px;flex-shrink:0;text-align:right;width:64px;line-height:1.5}
 .tag{font-size:10px;padding:1px 5px;border-radius:4px;margin-left:5px;font-weight:500;vertical-align:1px}
-.new{background:#fef3c7;color:#92400e}.wt{background:#ede9fe;color:#5b21b6}.seen{opacity:.6}
+.new{background:#fef3c7;color:#92400e}.csvt{background:#dcfce7;color:#166534}.wt{background:#ede9fe;color:#5b21b6}.seen{opacity:.6}
 #viewer{overflow:hidden;display:flex;flex-direction:column;padding:0 20px 12px;min-width:0}
 .empty{color:var(--muted);text-align:center;margin-top:30vh}
 .vhead{padding:14px 0 8px;flex-shrink:0}
@@ -49,10 +49,10 @@ table.grid{border-collapse:separate;border-spacing:0;font:12px/1.35 -apple-syste
 </style>
 </head>
 <body>
-<header><h1>.xlsx inbox</h1><nav><a href="/">Query inbox</a><a class="on" href="/xlsx">.xlsx inbox</a></nav><input id="q" placeholder="filter by name / folder / sheet"></header>
+<header><h1>.xlsx / .csv inbox</h1><nav><a href="/">Query inbox</a><a class="on" href="/xlsx">.xlsx / .csv inbox</a></nav><input id="q" placeholder="filter by name / folder / sheet / column"></header>
 <main>
   <div id="list"></div>
-  <div id="viewer"><div class="empty">Click a workbook to see its sheets here, without opening Excel.</div></div>
+  <div id="viewer"><div class="empty">Click a workbook or CSV to see it here, without opening Excel.</div></div>
 </main>
 <script>
 const $ = (s, el = document) => el.querySelector(s);
@@ -86,6 +86,7 @@ function drawList() {
     const nm = $('.name', row); nm.textContent = name;
     if (Date.now()/1000 - f.mtime < 900) nm.insertAdjacentHTML('beforeend', '<span class="tag new">new</span>');
     if (f.worktree) nm.insertAdjacentHTML('beforeend', `<span class="tag wt">${esc(f.worktree)}</span>`);
+    if (f.path.endsWith('.csv')) nm.insertAdjacentHTML('beforeend', '<span class="tag csvt">csv</span>');
     $('.desc', row).textContent = f.desc;
     $('.dir', row).textContent = (f.worktree ? parts.slice(3) : parts).join('/');
     $('.when', row).innerHTML = `${ago(f.mtime)}<br>${size(f.size)}`;
@@ -113,8 +114,8 @@ function drawViewer() {
   const sheets = d.sheets || [];
   v.innerHTML = `<div class="vhead"><div class="vtitle"><h2>${esc(f.path.split('/').pop())}</h2>
       <button class="ghost" id="reveal">Show in Finder</button><button id="xl">Open in Excel</button></div>
-    <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${size(f.size || 0)} · ${sheets.length} sheet${sheets.length === 1 ? '' : 's'}</div>
-    <div class="tabs">${sheets.map((s, i) => `<a data-i="${i}" class="${i === d.index ? 'on' : ''}">${esc(s)}</a>`).join('')}</div></div>
+    <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${size(f.size || 0)} · ${d.csv ? `CSV, ${esc(d.delimiter)}-separated` : `${sheets.length} sheet${sheets.length === 1 ? '' : 's'}`}</div>
+    ${d.csv ? '' : `<div class="tabs">${sheets.map((s, i) => `<a data-i="${i}" class="${i === d.index ? 'on' : ''}">${esc(s)}</a>`).join('')}</div>`}</div>
     <div id="sheet"></div>`;
   $('#xl').onclick = () => act('open');
   $('#reveal').onclick = () => act('reveal');
@@ -126,8 +127,8 @@ function drawViewer() {
   if (d.truncated_rows) notes.push(`showing the first ${d.rows.length.toLocaleString()} of ${d.max_row.toLocaleString()} rows`);
   if (d.truncated_cols) notes.push(`first ${d.cols.length} of ${d.max_col} columns`);
   if (d.streamed) notes.push('large file: merged cells and column widths not shown');
-  box.innerHTML = `<div class="bar"><span>${d.max_row.toLocaleString()} rows × ${d.max_col} columns</span>
-      ${notes.length ? `<span class="note">${esc(notes.join(' · '))} — Open in Excel for the rest</span>` : ''}
+  box.innerHTML = `<div class="bar"><span>${d.max_row.toLocaleString()} ${d.csv ? 'lines' : 'rows'} × ${d.max_col} columns</span>
+      ${notes.length ? `<span class="note">${esc(notes.join(' · '))} — open the file for the rest</span>` : ''}
       <input id="rf" placeholder="filter rows containing…"><span id="rc"></span></div>
     <div class="gridwrap">${grid(d)}</div>`;
   $('#rf').oninput = () => filterRows($('#rf').value.toLowerCase());
@@ -140,7 +141,7 @@ function grid(d) {
     span[r1 + ',' + c1] = [r2 - r1 + 1, c2 - c1 + 1];
     for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (r !== r1 || c !== c1) skip.add(r + ',' + c);
   }
-  const px = l => { const w = d.widths[l]; return w ? Math.min(420, Math.max(40, Math.round(w * 7 + 6))) : 84; };
+  const px = l => { const w = d.widths[l]; return w ? Math.min(420, Math.max(40, Math.round(w * 7.5 + 14))) : 84; };
   // fixed layout needs the table's own width, or the first column swallows the rest
   const total = 46 + d.cols.reduce((a, l) => a + px(l), 0);
   let h = `<table class="grid" style="width:${total}px"><colgroup><col style="width:46px">${d.cols.map(l => `<col style="width:${px(l)}px">`).join('')}</colgroup>`;

@@ -29,13 +29,15 @@ SQL console: no more opening each file in an editor to copy it, and no fighting 
 
 ![Checks](docs/checks.png)
 
-## .xlsx inbox
+## .xlsx / .csv inbox
 
-The same idea for workbooks, at `http://127.0.0.1:8765/xlsx`: the newest `.xlsx` files under the root (with their
-sheet names), and a viewer that renders each sheet in the browser with its formatting (bold, fills, number formats,
+The same idea for data files, at `http://127.0.0.1:8765/xlsx`: the newest `.xlsx` and `.csv` files under the root (with
+their sheet names or CSV columns), and a viewer that renders each sheet in the browser with its formatting (bold, fills, number formats,
 merged cells, column widths), a row filter, and **Open in Excel** / **Show in Finder** buttons. Formulas show their
 saved value, or the formula itself when the file was never saved by Excel. Big sheets show their first 1,000 rows and
-80 columns; workbooks over 3 MB are streamed (no merges / widths) so they still open in a second or two.
+80 columns; workbooks over 3 MB are streamed (no merges / widths) so they still open in a second or two. A CSV opens
+with its delimiter sniffed (comma, tab, semicolon, pipe), its header in bold, and columns sized to their contents; even
+a multi-million-line file opens instantly, with its full line count.
 
 ## Run it
 
@@ -61,7 +63,7 @@ Try it on the bundled examples: `python serve.py --root examples`.
 
 ## Notes
 
-- Binds to `127.0.0.1` only, and only serves `.sql` / `.xlsx` files inside `--root`.
+- Binds to `127.0.0.1` only, and only serves `.sql` / `.xlsx` / `.csv` files inside `--root`.
 - Queries parse as BigQuery SQL; a file whose name contains `spark` parses as Spark SQL. Parsing is
   [sqlglot](https://github.com/tobymao/sqlglot), so other dialects are a one-line change in `sqlviz.py`.
 - Copies of a file inside Claude Code worktrees (`.claude/worktrees/<name>/...`) are hidden when they match

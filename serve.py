@@ -1,7 +1,7 @@
 """Query inbox: a localhost page listing the newest .sql files under a folder, with a Copy button each
 and a viewer that breaks the query into a flow diagram, steps and highlighted SQL.
-.xlsx inbox (/xlsx): the same for workbooks -- newest .xlsx files, each sheet rendered in the browser
-with its formatting, plus Open in Excel / Show in Finder.
+.xlsx / .csv inbox (/xlsx): the same for data files -- newest .xlsx and .csv files, each sheet rendered in
+the browser (workbooks with their formatting), plus Open in Excel / Show in Finder.
 
 Every editor / agent session writes its queries to disk, so the page is session-agnostic: nothing
 rides on the shared clipboard until you click.
@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 import subprocess
 
 from sqlviz import analyze
-from xlsxview import read_sheet, sheet_names
+from xlsxview import csv_columns, read_csv, read_sheet, sheet_names
 
 PAGE = Path(__file__).with_name("index.html")
 XLSX_PAGE = Path(__file__).with_name("xlsx.html")
@@ -57,7 +57,7 @@ def recent_files(ext=".sql", describe_fn=None):
         if rel.parts[:2] == (".claude", "worktrees") and len(rel.parts) > 3:
             worktree = rel.parts[2]
             main = ROOT.joinpath(*rel.parts[3:])
-            if main.is_file() and main.read_bytes() == p.read_bytes():
+            if main.is_file() and main.stat().st_size == p.stat().st_size and main.read_bytes() == p.read_bytes():
                 continue
         out.append({"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe_fn(p), "size": p.stat().st_size})
         if len(out) == LIMIT:
@@ -78,7 +78,13 @@ def describe(p):
     return ""
 
 
+DATA_EXT = (".xlsx", ".csv")
+
+
 def describe_xlsx(p):
+    if p.suffix == ".csv":
+        cols = csv_columns(p)
+        return f"{len(cols)} column{'s' if len(cols) != 1 else ''}: " + ", ".join(cols) if cols else ""
     names = sheet_names(p)
     return f"{len(names)} sheet{'s' if len(names) != 1 else ''}: " + ", ".join(names) if names else ""
 
@@ -90,7 +96,8 @@ def recent_sql():
 def inside_root(rel, ext):
     """A path from the browser, only if it is a file of this type inside the root."""
     p = (ROOT / rel).resolve()
-    return p if p.suffix == ext and p.is_relative_to(ROOT) and p.is_file() else None
+    exts = ext if isinstance(ext, tuple) else (ext,)
+    return p if p.suffix in exts and p.is_relative_to(ROOT) and p.is_file() else None
 
 
 def load_lint(path):
@@ -118,12 +125,12 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/xlsx":
             return self.send(XLSX_PAGE.read_text(), "text/html")
         if url.path == "/api/xlsx/list":
-            return self.send(json.dumps(recent_files(".xlsx", describe_xlsx)), "application/json")
+            return self.send(json.dumps(recent_files(DATA_EXT, describe_xlsx)), "application/json")
         if url.path == "/api/xlsx/sheet":
-            p = inside_root(q.get("p", [""])[0], ".xlsx")
+            p = inside_root(q.get("p", [""])[0], DATA_EXT)
             if p:
                 try:
-                    data = read_sheet(p, q.get("s", ["0"])[0])
+                    data = read_csv(p) if p.suffix == ".csv" else read_sheet(p, q.get("s", ["0"])[0])
                 except Exception as e:  # a workbook openpyxl cannot read shouldn't take the page down
                     data = {"error": f"{type(e).__name__}: {e}"}
                 data["mtime"] = p.stat().st_mtime
@@ -150,7 +157,7 @@ class Handler(BaseHTTPRequestHandler):
         # Open in Excel / Show in Finder. The custom header makes a cross-site request need a CORS
         # preflight, which this server never answers, so only this page can trigger it.
         url = urlparse(self.path)
-        p = inside_root(parse_qs(url.query).get("p", [""])[0], ".xlsx")
+        p = inside_root(parse_qs(url.query).get("p", [""])[0], DATA_EXT)
         if url.path in ("/api/xlsx/open", "/api/xlsx/reveal") and p and self.headers.get("X-Inbox") == "1":
             subprocess.Popen(["open", str(p)] if url.path.endswith("open") else ["open", "-R", str(p)])
             return self.send("ok", "text/plain")

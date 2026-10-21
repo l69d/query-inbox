@@ -4,9 +4,11 @@ the browser without Excel.
 
 sheet_names(path) is cheap (reads the workbook part of the zip). read_sheet(path, index) loads the workbook;
 files over FULL_LOAD_MB are streamed read-only (no merges / widths) so a 30 MB workbook still opens fast.
+read_csv(path) / csv_columns(path) do the same for a .csv (one "sheet", first MAX_ROWS rows, header in bold).
 Formulas show their cached value; a formula with no cached value (a file openpyxl wrote and Excel never
 saved) shows the formula itself. Self-check: python xlsxview.py
 """
+import csv
 import datetime as dt
 import re
 from decimal import ROUND_HALF_UP, Decimal
@@ -172,6 +174,73 @@ def read_sheet(path, index=0):
     }
 
 
+def _dialect(sample):
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",\t;|")
+    except csv.Error:
+        return csv.excel
+
+
+def _head(path, nbytes=65536):
+    with open(path, "rb") as fh:
+        return fh.read(nbytes).decode("utf-8-sig", errors="replace")
+
+
+def csv_columns(path):
+    """The header row, cheaply (first 64 KB only)."""
+    try:
+        sample = _head(path)
+        return next(csv.reader(sample.splitlines(), _dialect(sample)), [])
+    except (OSError, StopIteration):
+        return []
+
+
+def count_lines(path):
+    n, last = 0, b"\n"
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 22), b""):
+            n += chunk.count(b"\n")
+            last = chunk[-1:]
+    return n + (last != b"\n")
+
+
+def is_number(text):
+    try:
+        float(text.replace(",", ""))
+        return bool(text.strip())
+    except ValueError:
+        return False
+
+
+def read_csv(path):
+    path = str(path)
+    dialect = _dialect(_head(path))
+    rows, width = [], 0
+    with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
+        for i, rec in enumerate(csv.reader(fh, dialect)):
+            if i >= MAX_ROWS:
+                break
+            rec = rec[:MAX_COLS]
+            width = max(width, len(rec))
+            rows.append([{"d": v, **({"n": 1} if i and is_number(v) else {}), **({"s": {"b": 1}} if i == 0 else {})}
+                         for v in rec])
+    for r in rows:  # ragged rows: pad so the grid stays square
+        r.extend({"d": ""} for _ in range(width - len(r)))
+    # a CSV has no column widths: size each column to its longest value in the first 200 rows
+    widths = {get_column_letter(c + 1): min(48, max(6, max(len(r[c]["d"]) for r in rows[:200]) + 1))
+              for c in range(width)}
+    total = count_lines(path)
+    max_col = len(csv_columns(path)) or width
+    name = Path(path).name
+    return {
+        "sheets": [name], "index": 0, "name": name, "rows": rows, "max_row": total, "max_col": max(max_col, width),
+        "cols": [get_column_letter(i) for i in range(1, width + 1)],
+        "truncated_rows": total > MAX_ROWS, "truncated_cols": max_col > MAX_COLS,
+        "merges": [], "widths": widths, "streamed": False, "csv": True,
+        "delimiter": {",": "comma", "\t": "tab", ";": "semicolon", "|": "pipe"}.get(dialect.delimiter, dialect.delimiter),
+    }
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -200,4 +269,12 @@ if __name__ == "__main__":
         assert s["rows"][1][3] == {"d": "=B2*2", "f": 1}, s["rows"][1][3]  # never opened in Excel: no cached value
         assert s["merges"] == [[4, 1, 4, 3]] and read_sheet(p, 1)["name"] == "Second"
         assert display(dt.datetime(2026, 10, 21), "yyyy-mm-dd") == "2026-10-21" and display(1234.5, "General") == "1234.5"
+        c = Path(tmp) / "t.csv"
+        c.write_text("city,orders\nncr,6775038\nbangalore,4828773\n")
+        r = read_csv(c)
+        assert csv_columns(c) == ["city", "orders"] and r["max_row"] == 3 and r["max_col"] == 2, r
+        assert r["rows"][0][0] == {"d": "city", "s": {"b": 1}} and r["rows"][1][1] == {"d": "6775038", "n": 1}, r["rows"]
+        t = Path(tmp) / "t2.csv"
+        t.write_text("a\tb\n1\t2")  # tab-separated, no trailing newline
+        assert read_csv(t)["delimiter"] == "tab" and read_csv(t)["max_row"] == 2
     print("ok")
