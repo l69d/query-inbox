@@ -1,5 +1,7 @@
 """Query inbox: a localhost page listing the newest .sql files under a folder, with a Copy button each
 and a viewer that breaks the query into a flow diagram, steps and highlighted SQL.
+.xlsx inbox (/xlsx): the same for workbooks -- newest .xlsx files, each sheet rendered in the browser
+with its formatting, plus Open in Excel / Show in Finder.
 
 Every editor / agent session writes its queries to disk, so the page is session-agnostic: nothing
 rides on the shared clipboard until you click.
@@ -17,9 +19,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import subprocess
+
 from sqlviz import analyze
+from xlsxview import read_sheet, sheet_names
 
 PAGE = Path(__file__).with_name("index.html")
+XLSX_PAGE = Path(__file__).with_name("xlsx.html")
 LIMIT = 60
 SKIP = {".git", "node_modules", "__pycache__"}
 ROOT = Path.cwd()
@@ -27,13 +33,14 @@ DAYS = 3
 LINT = None
 
 
-def recent_sql():
+def recent_files(ext=".sql", describe_fn=None):
+    describe_fn = describe_fn or describe
     cutoff = time.time() - DAYS * 86400
     found = []
     for dirpath, dirnames, filenames in os.walk(ROOT):
         dirnames[:] = [d for d in dirnames if d not in SKIP and not d.startswith((".venv", "venv"))]
         for name in filenames:
-            if name.endswith(".sql"):
+            if name.endswith(ext) and not name.startswith("~$"):  # ~$ = Excel's lock file
                 p = Path(dirpath, name)
                 try:
                     m = p.stat().st_mtime
@@ -52,7 +59,7 @@ def recent_sql():
             main = ROOT.joinpath(*rel.parts[3:])
             if main.is_file() and main.read_bytes() == p.read_bytes():
                 continue
-        out.append({"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe(p)})
+        out.append({"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe_fn(p), "size": p.stat().st_size})
         if len(out) == LIMIT:
             break
     return out
@@ -69,6 +76,21 @@ def describe(p):
     except OSError:
         pass
     return ""
+
+
+def describe_xlsx(p):
+    names = sheet_names(p)
+    return f"{len(names)} sheet{'s' if len(names) != 1 else ''}: " + ", ".join(names) if names else ""
+
+
+def recent_sql():
+    return recent_files(".sql")
+
+
+def inside_root(rel, ext):
+    """A path from the browser, only if it is a file of this type inside the root."""
+    p = (ROOT / rel).resolve()
+    return p if p.suffix == ext and p.is_relative_to(ROOT) and p.is_file() else None
 
 
 def load_lint(path):
@@ -92,6 +114,20 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/":
             return self.send(PAGE.read_text(), "text/html")
+        q = parse_qs(url.query)
+        if url.path == "/xlsx":
+            return self.send(XLSX_PAGE.read_text(), "text/html")
+        if url.path == "/api/xlsx/list":
+            return self.send(json.dumps(recent_files(".xlsx", describe_xlsx)), "application/json")
+        if url.path == "/api/xlsx/sheet":
+            p = inside_root(q.get("p", [""])[0], ".xlsx")
+            if p:
+                try:
+                    data = read_sheet(p, q.get("s", ["0"])[0])
+                except Exception as e:  # a workbook openpyxl cannot read shouldn't take the page down
+                    data = {"error": f"{type(e).__name__}: {e}"}
+                data["mtime"] = p.stat().st_mtime
+                return self.send(json.dumps(data), "application/json")
         if url.path == "/api/list":
             return self.send(json.dumps(recent_sql()), "application/json")
         if url.path in ("/api/file", "/api/viz"):
@@ -109,6 +145,16 @@ class Handler(BaseHTTPRequestHandler):
                            "error": {"message": f"viewer could not analyse this query ({type(e).__name__}: {e})", "line": None, "col": None}}
                 return self.send(json.dumps(viz), "application/json")
         self.send_error(404)
+
+    def do_POST(self):
+        # Open in Excel / Show in Finder. The custom header makes a cross-site request need a CORS
+        # preflight, which this server never answers, so only this page can trigger it.
+        url = urlparse(self.path)
+        p = inside_root(parse_qs(url.query).get("p", [""])[0], ".xlsx")
+        if url.path in ("/api/xlsx/open", "/api/xlsx/reveal") and p and self.headers.get("X-Inbox") == "1":
+            subprocess.Popen(["open", str(p)] if url.path.endswith("open") else ["open", "-R", str(p)])
+            return self.send("ok", "text/plain")
+        self.send_error(403)
 
     def log_message(self, *args):
         pass

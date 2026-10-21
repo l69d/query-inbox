@@ -29,6 +29,14 @@ SQL console: no more opening each file in an editor to copy it, and no fighting 
 
 ![Checks](docs/checks.png)
 
+## .xlsx inbox
+
+The same idea for workbooks, at `http://127.0.0.1:8765/xlsx`: the newest `.xlsx` files under the root (with their
+sheet names), and a viewer that renders each sheet in the browser with its formatting (bold, fills, number formats,
+merged cells, column widths), a row filter, and **Open in Excel** / **Show in Finder** buttons. Formulas show their
+saved value, or the formula itself when the file was never saved by Excel. Big sheets show their first 1,000 rows and
+80 columns; workbooks over 3 MB are streamed (no merges / widths) so they still open in a second or two.
+
 ## Run it
 
 ```bash
@@ -58,8 +66,8 @@ Try it on the bundled examples: `python serve.py --root examples`.
   [sqlglot](https://github.com/tobymao/sqlglot), so other dialects are a one-line change in `sqlviz.py`.
 - Copies of a file inside Claude Code worktrees (`.claude/worktrees/<name>/...`) are hidden when they match
   the main checkout, and tagged with the worktree name when they differ.
-- Three files, no build step: `serve.py` (stdlib HTTP server), `sqlviz.py` (query breakdown + checks;
-  `python sqlviz.py` runs its self-check), `index.html` (the page, plain JS).
+- No build step: `serve.py` (stdlib HTTP server), `sqlviz.py` (query breakdown + checks), `xlsxview.py` (sheet reader,
+  needs openpyxl), `index.html` / `xlsx.html` (the pages, plain JS). `python sqlviz.py` and `python xlsxview.py` run their self-checks.
 
 ## License
 

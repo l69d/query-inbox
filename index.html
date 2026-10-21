@@ -11,6 +11,8 @@
 body{margin:0;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
 header{display:flex;gap:16px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);height:52px}
 header h1{font-size:16px;margin:0;white-space:nowrap}
+header nav a{color:var(--muted);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px}
+header nav a.on{background:var(--bg);color:var(--ink);font-weight:600}
 #q{flex:0 1 360px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}
 main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 52px)}
 #list{overflow:auto;border-right:1px solid var(--line);background:var(--card)}
@@ -67,7 +69,7 @@ details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:4px}
 </style>
 </head>
 <body>
-<header><h1>Query inbox</h1><input id="q" placeholder="filter by name / folder"></header>
+<header><h1>Query inbox</h1><nav><a class="on" href="/">Query inbox</a><a href="/xlsx">.xlsx inbox</a></nav><input id="q" placeholder="filter by name / folder"></header>
 <main>
   <div id="list"></div>
   <div id="viewer"><div class="empty">Click a query to see its flow, steps and SQL here.</div></div>

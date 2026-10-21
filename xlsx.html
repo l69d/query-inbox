@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>.xlsx inbox</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--line:#e3e6ea;--ink:#1f2328;--muted:#6b7280;--blue:#2563eb;--green:#16a34a;--grid:#e5e7eb;--hdr:#f3f4f6}
+*{box-sizing:border-box}
+body{margin:0;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;gap:16px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);height:52px}
+header h1{font-size:16px;margin:0;white-space:nowrap}
+header nav a{color:var(--muted);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px}
+header nav a.on{background:var(--bg);color:var(--ink);font-weight:600}
+#q{flex:0 1 360px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}
+main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 52px)}
+#list{overflow:auto;border-right:1px solid var(--line);background:var(--card)}
+.row{display:flex;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.row:hover{background:#f2f6ff}.row.sel{background:#e8efff;box-shadow:inset 3px 0 var(--blue)}
+.grow{flex:1;min-width:0}.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.desc,.dir{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{color:#444;margin-top:1px}.dir{color:#999}
+.when{color:var(--muted);font-size:11px;flex-shrink:0;text-align:right;width:64px;line-height:1.5}
+.tag{font-size:10px;padding:1px 5px;border-radius:4px;margin-left:5px;font-weight:500;vertical-align:1px}
+.new{background:#fef3c7;color:#92400e}.wt{background:#ede9fe;color:#5b21b6}.seen{opacity:.6}
+#viewer{overflow:hidden;display:flex;flex-direction:column;padding:0 20px 12px;min-width:0}
+.empty{color:var(--muted);text-align:center;margin-top:30vh}
+.vhead{padding:14px 0 8px;flex-shrink:0}
+.vtitle{display:flex;gap:8px;align-items:center}.vtitle h2{font-size:17px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button{flex-shrink:0;padding:5px 11px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-size:13px}
+button.ghost{background:var(--card);color:var(--blue)}
+.vsub{color:var(--muted);font-size:12px;margin-top:3px}
+.tabs{display:flex;gap:4px;margin-top:10px;flex-wrap:wrap}
+.tabs a{padding:4px 12px;border-radius:6px;cursor:pointer;color:var(--muted);font-weight:500;user-select:none;font-size:13px;border:1px solid transparent}
+.tabs a.on{background:var(--card);color:var(--ink);border-color:var(--line);box-shadow:0 1px 0 var(--line)}
+.bar{display:flex;gap:12px;align-items:center;margin:8px 0;font-size:12px;color:var(--muted);flex-shrink:0}
+#rf{padding:4px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12px;width:220px}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:2px 8px;color:#92400e}
+.err{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#991b1b}
+.gridwrap{flex:1;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:0}
+table.grid{border-collapse:separate;border-spacing:0;font:12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;table-layout:fixed}
+.grid td,.grid th{border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:top;background:var(--card)}
+.grid thead th{position:sticky;top:0;background:var(--hdr);color:var(--muted);font-weight:500;text-align:center;z-index:2}
+.grid th.rn{position:sticky;left:0;background:var(--hdr);color:var(--muted);font-weight:400;text-align:right;z-index:1;width:46px;min-width:46px}
+.grid thead th.rn{z-index:3}
+.grid td.n{text-align:right;font-variant-numeric:tabular-nums}
+.grid td.f{color:#7c3aed;font-style:italic}
+.grid td.w{white-space:pre-wrap}
+.grid tr.hide{display:none}
+</style>
+</head>
+<body>
+<header><h1>.xlsx inbox</h1><nav><a href="/">Query inbox</a><a class="on" href="/xlsx">.xlsx inbox</a></nav><input id="q" placeholder="filter by name / folder / sheet"></header>
+<main>
+  <div id="list"></div>
+  <div id="viewer"><div class="empty">Click a workbook to see its sheets here, without opening Excel.</div></div>
+</main>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ago = t => { const s = Date.now()/1000 - t;
+  return s < 60 ? 'just now' : s < 3600 ? Math.floor(s/60)+' min ago' : s < 86400 ? Math.floor(s/3600)+' h ago' : Math.floor(s/86400)+' d ago'; };
+const size = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1, Math.round(b/1e3))+' KB';
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const enc = encodeURIComponent;
+
+let files = [], current = null;
+
+// ---------- list ----------
+async function load() {
+  files = await (await fetch('/api/xlsx/list')).json();
+  drawList();
+  if (current) {  // the open workbook was rewritten: reload the sheet in place
+    const f = files.find(f => f.path === current.path);
+    if (f && f.mtime !== current.mtime) open(f, current.sheet, true);
+  }
+}
+function drawList() {
+  const q = $('#q').value.toLowerCase(), list = $('#list');
+  list.innerHTML = '';
+  for (const f of files.filter(f => (f.path + ' ' + f.desc).toLowerCase().includes(q))) {
+    const parts = f.path.split('/'), name = parts.pop();
+    const row = document.createElement('div');
+    row.className = 'row' + (current && current.path === f.path ? ' sel' : '') + (store.get('seen:' + f.path + ':' + f.mtime) ? ' seen' : '');
+    row.innerHTML = `<div class="grow"><div class="name"></div><div class="desc"></div><div class="dir"></div></div><div class="when"></div>`;
+    const nm = $('.name', row); nm.textContent = name;
+    if (Date.now()/1000 - f.mtime < 900) nm.insertAdjacentHTML('beforeend', '<span class="tag new">new</span>');
+    if (f.worktree) nm.insertAdjacentHTML('beforeend', `<span class="tag wt">${esc(f.worktree)}</span>`);
+    $('.desc', row).textContent = f.desc;
+    $('.dir', row).textContent = (f.worktree ? parts.slice(3) : parts).join('/');
+    $('.when', row).innerHTML = `${ago(f.mtime)}<br>${size(f.size)}`;
+    row.onclick = () => open(f, 0);
+    list.appendChild(row);
+  }
+}
+
+// ---------- viewer ----------
+async function open(f, sheet = 0, keepScroll = false) {
+  const grid = $('.gridwrap'), top = grid ? grid.scrollTop : 0, left = grid ? grid.scrollLeft : 0;
+  if (!keepScroll) $('#viewer').innerHTML = '<div class="empty">Reading the workbook…</div>';
+  const data = await (await fetch(`/api/xlsx/sheet?p=${enc(f.path)}&s=${sheet}`)).json();
+  current = { ...f, mtime: data.mtime ?? f.mtime, sheet: data.index ?? 0, data };
+  store.set('seen:' + f.path + ':' + current.mtime, 1);
+  location.hash = `p=${enc(f.path)}&s=${current.sheet}`;
+  drawList(); drawViewer();
+  if (keepScroll) { const g = $('.gridwrap'); if (g) { g.scrollTop = top; g.scrollLeft = left; } }
+}
+async function act(kind) {
+  await fetch(`/api/xlsx/${kind}?p=${enc(current.path)}`, { method: 'POST', headers: { 'X-Inbox': '1' } });
+}
+function drawViewer() {
+  const v = $('#viewer'), f = current, d = f.data;
+  const sheets = d.sheets || [];
+  v.innerHTML = `<div class="vhead"><div class="vtitle"><h2>${esc(f.path.split('/').pop())}</h2>
+      <button class="ghost" id="reveal">Show in Finder</button><button id="xl">Open in Excel</button></div>
+    <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${size(f.size || 0)} · ${sheets.length} sheet${sheets.length === 1 ? '' : 's'}</div>
+    <div class="tabs">${sheets.map((s, i) => `<a data-i="${i}" class="${i === d.index ? 'on' : ''}">${esc(s)}</a>`).join('')}</div></div>
+    <div id="sheet"></div>`;
+  $('#xl').onclick = () => act('open');
+  $('#reveal').onclick = () => act('reveal');
+  v.querySelectorAll('.tabs a').forEach(a => a.onclick = () => open(f, +a.dataset.i));
+  const box = $('#sheet');
+  if (d.error) { box.innerHTML = `<div class="err">Couldn't read this workbook: ${esc(d.error)}</div>`; return; }
+  box.style.cssText = 'display:flex;flex-direction:column;flex:1;min-height:0';
+  const notes = [];
+  if (d.truncated_rows) notes.push(`showing the first ${d.rows.length.toLocaleString()} of ${d.max_row.toLocaleString()} rows`);
+  if (d.truncated_cols) notes.push(`first ${d.cols.length} of ${d.max_col} columns`);
+  if (d.streamed) notes.push('large file: merged cells and column widths not shown');
+  box.innerHTML = `<div class="bar"><span>${d.max_row.toLocaleString()} rows × ${d.max_col} columns</span>
+      ${notes.length ? `<span class="note">${esc(notes.join(' · '))} — Open in Excel for the rest</span>` : ''}
+      <input id="rf" placeholder="filter rows containing…"><span id="rc"></span></div>
+    <div class="gridwrap">${grid(d)}</div>`;
+  $('#rf').oninput = () => filterRows($('#rf').value.toLowerCase());
+}
+function grid(d) {
+  if (!d.rows.length) return '<div class="empty" style="margin-top:10vh">This sheet is empty.</div>';
+  // merged ranges: the top-left cell spans, the rest are skipped
+  const skip = new Set(), span = {};
+  for (const [r1, c1, r2, c2] of d.merges) {
+    span[r1 + ',' + c1] = [r2 - r1 + 1, c2 - c1 + 1];
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (r !== r1 || c !== c1) skip.add(r + ',' + c);
+  }
+  const px = l => { const w = d.widths[l]; return w ? Math.min(420, Math.max(40, Math.round(w * 7 + 6))) : 84; };
+  // fixed layout needs the table's own width, or the first column swallows the rest
+  const total = 46 + d.cols.reduce((a, l) => a + px(l), 0);
+  let h = `<table class="grid" style="width:${total}px"><colgroup><col style="width:46px">${d.cols.map(l => `<col style="width:${px(l)}px">`).join('')}</colgroup>`;
+  h += `<thead><tr><th class="rn"></th>${d.cols.map(l => `<th>${l}</th>`).join('')}</tr></thead><tbody>`;
+  d.rows.forEach((row, ri) => {
+    const r = ri + 1;
+    h += `<tr data-t="${esc(row.map(c => c.d).join(' ').toLowerCase())}"><th class="rn">${r}</th>`;
+    row.forEach((c, ci) => {
+      const k = r + ',' + (ci + 1);
+      if (skip.has(k)) return;
+      const s = c.s || {}, cls = [c.n ? 'n' : '', c.f ? 'f' : '', s.w ? 'w' : ''].filter(Boolean).join(' ');
+      let st = '';
+      if (s.b) st += 'font-weight:600;';
+      if (s.i) st += 'font-style:italic;';
+      if (s.c) st += `color:${s.c};`;
+      if (s.bg) st += `background:${s.bg};`;
+      if (s.a) st += `text-align:${{l:'left', c:'center', r:'right'}[s.a]};`;
+      // like Excel, long text runs on over the empty cells to its right
+      let over = 0;
+      if (!span[k] && c.d && !c.n && !s.w) {
+        while (ci + 1 + over < row.length && !row[ci + 1 + over].d && !(row[ci + 1 + over].s || {}).bg
+               && !skip.has(r + ',' + (ci + 2 + over))) over++;
+        for (let j = 1; j <= over; j++) skip.add(r + ',' + (ci + 1 + j));
+      }
+      const sp = span[k] ? ` rowspan="${span[k][0]}" colspan="${span[k][1]}"` : over ? ` colspan="${over + 1}"` : '';
+      h += `<td${sp}${cls ? ` class="${cls}"` : ''}${st ? ` style="${st}"` : ''}${c.d.length > 12 ? ` title="${esc(c.d)}"` : ''}>${esc(c.d)}</td>`;
+    });
+    h += '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+function filterRows(q) {
+  let shown = 0;
+  document.querySelectorAll('.grid tbody tr').forEach((tr, i) => {
+    const hit = !q || i === 0 || tr.dataset.t.includes(q);  // keep row 1, usually the header
+    tr.classList.toggle('hide', !hit); if (hit && i) shown++;
+  });
+  $('#rc').textContent = q ? `${shown} matching row${shown === 1 ? '' : 's'}` : '';
+}
+
+$('#q').oninput = drawList;
+(async () => {
+  await load();
+  const h = new URLSearchParams(location.hash.slice(1)), p = h.get('p');
+  if (p) open(files.find(f => f.path === p) || { path: p, mtime: 0, desc: '', size: 0 }, +(h.get('s') || 0));
+  setInterval(load, 10000);
+})();
+</script>
+</body>
+</html>
