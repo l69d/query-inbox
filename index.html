@@ -22,7 +22,11 @@ main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 52px)}
 .desc,.dir{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{color:#444;margin-top:1px}.dir{color:#999}
 .when{color:var(--muted);font-size:11px;flex-shrink:0;text-align:right;width:58px}
 .tag{font-size:10px;padding:1px 5px;border-radius:4px;margin-left:5px;font-weight:500;vertical-align:1px}
-.new{background:#fef3c7;color:#92400e}.wt{background:#ede9fe;color:#5b21b6}.ran{opacity:.55}
+.new{background:#fef3c7;color:#92400e}.wt{background:#ede9fe;color:#5b21b6}
+.fdp{background:#ffedd5;color:#9a3412;border:1px solid #fdba74}.tbl{background:#e0f2fe;color:#075985;border:1px solid #7dd3fc}
+.only{font-size:13px;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none}
+.tline{margin:2px 0 1px;line-height:1}.tline .tag{margin-left:0;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:0}
+.vtag{font-size:12px;padding:2px 8px;border-radius:5px;font-weight:600;margin-left:8px;vertical-align:2px}.ran{opacity:.55}
 button{flex-shrink:0;padding:5px 11px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-size:13px}
 button.done{background:var(--green);border-color:var(--green)}
 #viewer{overflow:auto;padding:0 20px 40px}
@@ -69,7 +73,7 @@ details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:4px}
 </style>
 </head>
 <body>
-<header><h1>Query inbox</h1><nav><a class="on" href="/">Query inbox</a><a href="/xlsx">.xlsx / .csv inbox</a></nav><input id="q" placeholder="filter by name / folder"></header>
+<header><h1>Query inbox</h1><nav><a class="on" href="/">Query inbox</a><a href="/xlsx">.xlsx / .csv inbox</a></nav><input id="q" placeholder="filter by name / folder / table"><label class="only"><input type="checkbox" id="only"> FDP job queries only</label></header>
 <main>
   <div id="list"></div>
   <div id="viewer"><div class="empty">Click a query to see its flow, steps and SQL here.</div></div>
@@ -100,10 +104,13 @@ async function copy(f, btn, row) {
   store.set(copyKey(f), Date.now()/1000);
   drawList(); if (current && current.path === f.path) drawHead();
 }
+// a query that runs as an FDP job carries `-- @fdp-job: name` (or @fdp; @table for a plain table query) in its header
+const tableTag = (t, cls) => `<span class="${cls} ${t.kind === 'fdp' ? 'fdp' : 'tbl'}" title="${t.kind === 'fdp' ? 'FDP job query: builds an FDP fact / table' : 'builds a table'}">${t.kind === 'fdp' ? 'FDP job' : 'TABLE'}${t.name ? ' → ' + esc(t.name) : ''}</span>`;
 function drawList() {
   const q = $('#q').value.toLowerCase(), list = $('#list');
   list.innerHTML = '';
-  for (const f of files.filter(f => f.path.toLowerCase().includes(q))) {
+  const only = $('#only').checked;
+  for (const f of files.filter(f => (f.path + ' ' + (f.table ? f.table.name : '')).toLowerCase().includes(q) && (!only || f.table))) {
     const parts = f.path.split('/'), name = parts.pop();
     const row = document.createElement('div');
     row.className = 'row' + (current && current.path === f.path ? ' sel' : '');
@@ -111,6 +118,7 @@ function drawList() {
     const nm = $('.name', row); nm.textContent = name;
     if (Date.now()/1000 - f.mtime < 900) nm.insertAdjacentHTML('beforeend', '<span class="tag new">new</span>');
     if (f.worktree) nm.insertAdjacentHTML('beforeend', `<span class="tag wt">${esc(f.worktree)}</span>`);
+    if (f.table) nm.insertAdjacentHTML('afterend', `<div class="tline">${tableTag(f.table, 'tag')}</div>`);
     $('.desc', row).textContent = f.desc;
     $('.dir', row).textContent = (f.worktree ? parts.slice(3) : parts).join('/');
     $('.when', row).textContent = ago(f.mtime);
@@ -136,7 +144,7 @@ async function open(f, keepScroll) {
 function drawHead() {
   const f = current, seen = store.get(copyKey(f));
   const head = $('.vhead');
-  head.innerHTML = `<div class="vtitle"><h2>${esc(f.path.split('/').pop())}</h2><button class="${seen ? 'done' : ''}">${seen ? 'Copied ' + ago(+seen) : 'Copy query'}</button></div>
+  head.innerHTML = `<div class="vtitle"><h2>${esc(f.path.split('/').pop())}${f.viz.table ? tableTag(f.viz.table, 'vtag') : ''}</h2><button class="${seen ? 'done' : ''}">${seen ? 'Copied ' + ago(+seen) : 'Copy query'}</button></div>
     <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${current.sql.split('\n').length} lines · ${esc(f.viz.dialect === 'spark' ? 'Spark SQL' : 'BigQuery')}</div>
     <div class="tabs">${['flow','steps','sql'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${{flow:'Flow',steps:'Steps',sql:'SQL'}[t]}</a>`).join('')}</div>`;
   $('button', head).onclick = () => copy(f);
@@ -273,6 +281,8 @@ function goLine(n, smooth = true) {
 }
 
 $('#q').oninput = drawList;
+try { $('#only').checked = store.get('onlyTables') === '1'; } catch {}
+$('#only').onchange = () => { store.set('onlyTables', $('#only').checked ? '1' : '0'); drawList(); };
 (async () => {
   await load();
   const p = decodeURIComponent((location.hash.match(/p=([^&]+)/) || [])[1] || '');

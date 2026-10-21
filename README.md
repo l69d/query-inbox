@@ -29,6 +29,18 @@ SQL console: no more opening each file in an editor to copy it, and no fighting 
 
 ![Checks](docs/checks.png)
 
+### FDP job queries
+
+Tag a query that will run as a job building a fact / table on a data platform (FDP here) in its header:
+
+```sql
+-- @fdp-job: fact_city_daily_orders      (or: -- @fdp: name; -- @table: name for a plain table query)
+```
+
+It then gets an orange **FDP job → fact_city_daily_orders** badge (blue **TABLE** for `@table`) in the list and viewer,
+an "FDP job queries only" filter, and extra checks a table needs: no `SELECT *`, no duplicate or unaliased output
+columns, lower snake_case column names, and no `ORDER BY` / `LIMIT` on the final SELECT.
+
 ## .xlsx / .csv inbox
 
 The same idea for data files, at `http://127.0.0.1:8765/xlsx`: the newest `.xlsx` and `.csv` files under the root (with

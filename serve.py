@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import subprocess
 
-from sqlviz import analyze
+from sqlviz import analyze, table_target
 from xlsxview import csv_columns, read_csv, read_sheet, sheet_names
 
 PAGE = Path(__file__).with_name("index.html")
@@ -59,7 +59,14 @@ def recent_files(ext=".sql", describe_fn=None):
             main = ROOT.joinpath(*rel.parts[3:])
             if main.is_file() and main.stat().st_size == p.stat().st_size and main.read_bytes() == p.read_bytes():
                 continue
-        out.append({"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe_fn(p), "size": p.stat().st_size})
+        item = {"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe_fn(p), "size": p.stat().st_size}
+        if p.suffix == ".sql":
+            try:
+                with p.open(errors="replace") as fh:
+                    item["table"] = table_target("".join(line for _, line in zip(range(40), fh)))
+            except OSError:
+                pass
+        out.append(item)
         if len(out) == LIMIT:
             break
     return out
@@ -71,7 +78,7 @@ def describe(p):
         with p.open(errors="replace") as fh:
             for _, line in zip(range(15), fh):
                 text = line.strip().lstrip("-").strip()
-                if line.lstrip().startswith("--") and text and set(text) - set("=-"):
+                if line.lstrip().startswith("--") and text and set(text) - set("=-") and not text.startswith("@"):
                     return text[:160]
     except OSError:
         pass

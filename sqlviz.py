@@ -96,10 +96,48 @@ def line_of(sql, name):
     return sql[: m.start()].count("\n") + 1 if m else 1
 
 
+TABLE_TAG = re.compile(r"^[ \t]*--[ \t]*@(fdp-job|fdp-table|fdp|table)\b[ \t]*:?[ \t]*([\w.\-]*)", re.I | re.M)
+
+
+def table_target(sql):
+    """A query that runs as an FDP job (building a fact / table) says so in a header comment:
+    `-- @fdp-job: my_fact` (`@fdp` works too; `@table` tags a plain table-building query).
+    Returns {"kind": "fdp" | "table", "name": "my_fact"} or None. Only the first 40 lines are read."""
+    m = TABLE_TAG.search("\n".join(sql.splitlines()[:40]))
+    if not m:
+        return None
+    return {"kind": "table" if m.group(1).lower() == "table" else "fdp", "name": m.group(2)}
+
+
+def table_checks(tree):
+    """What a query that becomes a table should not do. Run only on tagged queries."""
+    issues = []
+    sel = branches(tree)[0] if branches(tree) else None
+    if sel is None:
+        return ["table: the final statement is not a SELECT"]
+    names = [e.alias_or_name for e in sel.expressions]
+    if any(isinstance(e, exp.Star) or (isinstance(e, exp.Column) and isinstance(e.this, exp.Star)) for e in sel.expressions):
+        issues.append("table: final SELECT uses * -- list the columns, so the table's schema doesn't shift when a source table changes")
+    dupes = sorted({n for n in names if n and names.count(n) > 1})
+    if dupes:
+        issues.append(f"table: duplicate output column(s) {', '.join(dupes)}")
+    bad = [n for n in names if n and not re.fullmatch(r"[a-z_][a-z0-9_]*", n)]
+    if bad:
+        issues.append(f"table: column name(s) not lower snake_case: {', '.join(bad[:6])}")
+    unnamed = [e.sql() for e in sel.expressions if not isinstance(e, (exp.Alias, exp.Column, exp.Star))]
+    if unnamed:
+        issues.append(f"table: expression(s) without an alias: {', '.join(u[:40] for u in unnamed[:3])}")
+    if tree.args.get("order"):
+        issues.append("table: ORDER BY on the final SELECT -- a table has no row order; drop it")
+    if tree.args.get("limit"):
+        issues.append("table: LIMIT on the final SELECT -- the table would hold only part of the data")
+    return issues
+
+
 def analyze(sql, name="", lint=None):
     """Dialect is Spark when the file name says spark, else BigQuery. lint: optional fn(sql) -> [str]."""
     dialect = "spark" if "spark" in name.lower() else "bigquery"
-    out = {"dialect": dialect, "error": None, "issues": [], "steps": []}
+    out = {"dialect": dialect, "error": None, "issues": [], "steps": [], "table": table_target(sql)}
     try:
         trees = [t for t in sqlglot.parse(sql, read=dialect) if t is not None]
     except sqlglot.ParseError as e:
@@ -122,6 +160,8 @@ def analyze(sql, name="", lint=None):
     last = sql.rfind("\nSELECT") if ctes else 0
     out["steps"].append(step("final", "final", final, ctes, out["issues"],
                              sql[: max(last, 0)].count("\n") + 2 if last > 0 else 1))
+    if out["table"]:
+        out["issues"] += table_checks(tree)
     return out
 
 
@@ -166,4 +206,14 @@ if __name__ == "__main__":
     assert ok["issues"] == [], ok["issues"]
     # an optional linter's notes are passed through, tagged
     assert analyze("SELECT 1 AS one", lint=lambda sql: ["note"])["issues"] == ["lint: note"]
+    # table-tagged queries: the tag is read and table checks run; untagged ones get neither
+    tagged = analyze("-- @fdp-job: fact_city_orders\nSELECT city, COUNT(*), city FROM warehouse.t AS fuf "
+                     "GROUP BY 1 ORDER BY 2 LIMIT 5")
+    assert tagged["table"] == {"kind": "fdp", "name": "fact_city_orders"}, tagged["table"]
+    txt = " | ".join(tagged["issues"])
+    assert all(k in txt for k in ("duplicate output", "without an alias", "ORDER BY", "LIMIT")), txt
+    assert table_target("-- @table\nSELECT 1 AS a") == {"kind": "table", "name": ""}
+    assert analyze("SELECT city FROM t AS fuf ORDER BY 1")["table"] is None
+    clean = analyze("-- @fdp: fact_x\nSELECT fuf.city, COUNT(*) AS orders FROM warehouse.t AS fuf GROUP BY 1")
+    assert not [i for i in clean["issues"] if i.startswith("table:")], clean["issues"]
     print("ok")
