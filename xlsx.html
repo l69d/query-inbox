@@ -13,7 +13,10 @@ header h1{font-size:16px;margin:0;white-space:nowrap}
 header nav a{color:var(--muted);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px}
 header nav a.on{background:var(--bg);color:var(--ink);font-weight:600}
 #q{flex:0 1 360px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}
-main{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 52px)}
+main{display:grid;grid-template-columns:var(--side,380px) 6px 1fr;height:calc(100vh - 52px)}
+#split{cursor:col-resize;background:var(--line);margin-left:-3px;width:6px;position:relative;z-index:5;transition:background .15s}
+#split:hover,#split.drag{background:var(--blue)}
+body.resizing{cursor:col-resize;user-select:none}
 #list{overflow:auto;border-right:1px solid var(--line);background:var(--card)}
 .row{display:flex;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--line);cursor:pointer}
 .row:hover{background:#f2f6ff}.row.sel{background:#e8efff;box-shadow:inset 3px 0 var(--blue)}
@@ -52,6 +55,7 @@ table.grid{border-collapse:separate;border-spacing:0;font:12px/1.35 -apple-syste
 <header><h1>.xlsx / .csv inbox</h1><nav><a href="/">Query inbox</a><a class="on" href="/xlsx">.xlsx / .csv inbox</a></nav><input id="q" placeholder="filter by name / folder / sheet / column"></header>
 <main>
   <div id="list"></div>
+  <div id="split" title="drag to resize · double-click to reset"></div>
   <div id="viewer"><div class="empty">Click a workbook or CSV to see it here, without opening Excel.</div></div>
 </main>
 <script>
@@ -188,6 +192,24 @@ $('#q').oninput = drawList;
   const h = new URLSearchParams(location.hash.slice(1)), p = h.get('p');
   if (p) open(files.find(f => f.path === p) || { path: p, mtime: 0, desc: '', size: 0 }, +(h.get('s') || 0));
   setInterval(load, 10000);
+})();
+
+// drag the bar between the list and the viewer to resize the list; double-click resets it. Width is remembered.
+(() => {
+  const split = document.getElementById('split'), root = document.documentElement;
+  const set = w => root.style.setProperty('--side', Math.max(220, Math.min(w, window.innerWidth - 420)) + 'px');
+  try { const w = +localStorage.getItem('sideWidth'); if (w) set(w); } catch {}
+  split.addEventListener('pointerdown', e => {
+    split.setPointerCapture(e.pointerId); split.classList.add('drag'); document.body.classList.add('resizing');
+    const move = ev => set(ev.clientX);
+    const up = () => {
+      split.removeEventListener('pointermove', move); split.classList.remove('drag'); document.body.classList.remove('resizing');
+      try { localStorage.setItem('sideWidth', parseInt(getComputedStyle(root).getPropertyValue('--side'))); } catch {}
+    };
+    split.addEventListener('pointermove', move);
+    split.addEventListener('pointerup', up, { once: true });
+  });
+  split.addEventListener('dblclick', () => { root.style.removeProperty('--side'); try { localStorage.removeItem('sideWidth'); } catch {} });
 })();
 </script>
 </body>
