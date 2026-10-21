@@ -40,7 +40,7 @@ saved value, or the formula itself when the file was never saved by Excel. Big s
 ## Run it
 
 ```bash
-pip install -r requirements.txt      # just sqlglot
+pip install -r requirements.txt      # sqlglot + openpyxl
 python serve.py --root ~/my-sql-workspace
 # open http://127.0.0.1:8765
 ```
@@ -61,7 +61,7 @@ Try it on the bundled examples: `python serve.py --root examples`.
 
 ## Notes
 
-- Binds to `127.0.0.1` only, and only serves `.sql` files inside `--root`.
+- Binds to `127.0.0.1` only, and only serves `.sql` / `.xlsx` files inside `--root`.
 - Queries parse as BigQuery SQL; a file whose name contains `spark` parses as Spark SQL. Parsing is
   [sqlglot](https://github.com/tobymao/sqlglot), so other dialects are a one-line change in `sqlviz.py`.
 - Copies of a file inside Claude Code worktrees (`.claude/worktrees/<name>/...`) are hidden when they match
