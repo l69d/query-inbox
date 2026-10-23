@@ -1,4 +1,4 @@
-# Query inbox
+# Claude Output (query-inbox)
 
 A tiny localhost page that lists the `.sql` files you (or your coding agents) saved recently, gives each a
 **Copy** button, and opens any query in a viewer that makes it easy to read and proofread before you run it.
@@ -51,6 +51,14 @@ saved value, or the formula itself when the file was never saved by Excel. Big s
 with its delimiter sniffed (comma, tab, semicolon, pipe), its header in bold, and columns sized to their contents; even
 a multi-million-line file opens instantly, with its full line count.
 
+## Pages (.html)
+
+`http://127.0.0.1:8765/html` lists the newest HTML reports and dashboards (titled from their `<title>`) and shows the
+selected one in a sandboxed frame, with **Open in new tab** and **Show in Finder**. Fragments are left out: Apps Script
+templates (`<?= ?>`), script-only includes, and build templates with a `__PLACEHOLDER__` title. Files beside a page
+(styles, scripts, images, `.geojson` / `.csv` data) are served so relative links work; `.json` and anything with a
+credential-looking name (client_id, secret, token, ...) never are.
+
 ## Run it
 
 ```bash
@@ -75,7 +83,7 @@ Try it on the bundled examples: `python serve.py --root examples`.
 
 ## Notes
 
-- Binds to `127.0.0.1` only, and only serves `.sql` / `.xlsx` / `.csv` files inside `--root`.
+- Binds to `127.0.0.1` only, and only serves files inside `--root` (`.sql`, `.xlsx`, `.csv`, and pages with their static assets).
 - Queries parse as BigQuery SQL; a file whose name contains `spark` parses as Spark SQL. Parsing is
   [sqlglot](https://github.com/tobymao/sqlglot), so other dialects are a one-line change in `sqlviz.py`.
 - Copies of a file inside Claude Code worktrees (`.claude/worktrees/<name>/...`) are hidden when they match

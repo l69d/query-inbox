@@ -1,7 +1,7 @@
-"""Query inbox: a localhost page listing the newest .sql files under a folder, with a Copy button each
-and a viewer that breaks the query into a flow diagram, steps and highlighted SQL.
-.xlsx / .csv inbox (/xlsx): the same for data files -- newest .xlsx and .csv files, each sheet rendered in
-the browser (workbooks with their formatting), plus Open in Excel / Show in Finder.
+"""Claude Output: localhost pages listing the newest files an agent (or you) wrote under a folder.
+  Queries (/)     .sql  -- Copy button each; viewer breaks the query into a flow diagram, steps and SQL.
+  Sheets (/xlsx)  .xlsx / .csv -- each sheet rendered in the browser, Open in Excel / Show in Finder.
+  Pages (/html)   .html -- each page rendered in a sandboxed frame, open in a new tab / Show in Finder.
 
 Every editor / agent session writes its queries to disk, so the page is session-agnostic: nothing
 rides on the shared clipboard until you click.
@@ -19,6 +19,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import mimetypes
+import re
+import shutil
 import subprocess
 
 from sqlviz import analyze, table_target
@@ -26,6 +29,12 @@ from xlsxview import csv_columns, read_csv, read_sheet, sheet_names
 
 PAGE = Path(__file__).with_name("index.html")
 XLSX_PAGE = Path(__file__).with_name("xlsx.html")
+HTML_PAGE = Path(__file__).with_name("html.html")
+# /view/ serves a page and the files beside it (styles, scripts, images, data) so relative links work.
+# Never anything that could be a credential: no .json / .env / keys, and no credential-looking names.
+VIEW_EXT = {".html", ".htm", ".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+            ".woff", ".woff2", ".ttf", ".otf", ".geojson", ".csv", ".tsv", ".txt", ".pdf", ".mp4", ".webm"}
+SECRET_NAME = re.compile(r"client_id|secret|credential|token|service.?account|\.clasprc|apikey|api_key|passw", re.I)
 LIMIT = 60
 SKIP = {".git", "node_modules", "__pycache__"}
 ROOT = Path.cwd()
@@ -33,7 +42,7 @@ DAYS = 3
 LINT = None
 
 
-def recent_files(ext=".sql", describe_fn=None):
+def recent_files(ext=".sql", describe_fn=None, keep=None):
     describe_fn = describe_fn or describe
     cutoff = time.time() - DAYS * 86400
     found = []
@@ -51,6 +60,8 @@ def recent_files(ext=".sql", describe_fn=None):
     found.sort(reverse=True)
     out = []
     for m, p in found:
+        if keep and not keep(p):
+            continue
         rel = p.relative_to(ROOT)
         worktree = None
         # Claude Code worktrees: show a copy once if it matches the main checkout
@@ -96,6 +107,34 @@ def describe_xlsx(p):
     return f"{len(names)} sheet{'s' if len(names) != 1 else ''}: " + ", ".join(names) if names else ""
 
 
+def page_like(p):
+    """A whole page, not a fragment: Apps Script templates (<?= ?>) and script-only includes are left out."""
+    try:
+        with p.open("rb") as fh:
+            head = fh.read(65536).decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    low = head[:4096].lower()
+    if re.search(r"<title[^>]*>[^<]*__[A-Z]+__", head):  # a build template (<title>__TITLE__</title>), not output
+        return False
+    return ("<!doctype html" in low or "<html" in low) and "<?=" not in head and "<?!=" not in head
+
+
+def describe_html(p):
+    try:
+        with p.open("rb") as fh:
+            head = fh.read(65536).decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    for pat in (r"<title[^>]*>(.*?)</title>", r"<h1[^>]*>(.*?)</h1>"):
+        m = re.search(pat, head, re.I | re.S)
+        if m:
+            text = re.sub(r"<[^>]+>|\s+", " ", m.group(1)).strip()
+            if text:
+                return text[:160]
+    return ""
+
+
 def recent_sql():
     return recent_files(".sql")
 
@@ -131,6 +170,12 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(url.query)
         if url.path == "/xlsx":
             return self.send(XLSX_PAGE.read_text(), "text/html")
+        if url.path == "/html":
+            return self.send(HTML_PAGE.read_text(), "text/html")
+        if url.path == "/api/html/list":
+            return self.send(json.dumps(recent_files((".html", ".htm"), describe_html, keep=page_like)), "application/json")
+        if url.path.startswith("/view/"):
+            return self.view(url.path[len("/view/"):])
         if url.path == "/api/xlsx/list":
             return self.send(json.dumps(recent_files(DATA_EXT, describe_xlsx)), "application/json")
         if url.path == "/api/xlsx/sheet":
@@ -160,11 +205,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(json.dumps(viz), "application/json")
         self.send_error(404)
 
+    def view(self, rel):
+        from urllib.parse import unquote
+        p = (ROOT / unquote(rel)).resolve()
+        if (p.suffix.lower() not in VIEW_EXT or SECRET_NAME.search(p.name) or not p.is_relative_to(ROOT)
+                or not p.is_file()):
+            return self.send_error(404)
+        self.send_response(200)
+        ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+        self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
+        self.send_header("Content-Length", str(p.stat().st_size))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        with p.open("rb") as fh:
+            shutil.copyfileobj(fh, self.wfile)
+
     def do_POST(self):
         # Open in Excel / Show in Finder. The custom header makes a cross-site request need a CORS
-        # preflight, which this server never answers, so only this page can trigger it.
+        # preflight, which this server never answers, so only these pages can trigger it. Pages shown in
+        # the Pages viewer run in a sandboxed frame with an opaque origin, so they cannot either.
         url = urlparse(self.path)
-        p = inside_root(parse_qs(url.query).get("p", [""])[0], DATA_EXT)
+        p = inside_root(parse_qs(url.query).get("p", [""])[0], DATA_EXT + (".html", ".htm"))
         if url.path in ("/api/xlsx/open", "/api/xlsx/reveal") and p and self.headers.get("X-Inbox") == "1":
             subprocess.Popen(["open", str(p)] if url.path.endswith("open") else ["open", "-R", str(p)])
             return self.send("ok", "text/plain")
@@ -183,5 +244,5 @@ if __name__ == "__main__":
     args = ap.parse_args()
     ROOT, DAYS = Path(args.root).expanduser().resolve(), args.days
     LINT = load_lint(args.lint) if args.lint else None
-    print(f"Query inbox for {ROOT} on http://127.0.0.1:{args.port}")
+    print(f"Claude Output for {ROOT} on http://127.0.0.1:{args.port}")
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
