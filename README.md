@@ -1,4 +1,4 @@
-# Claude Output (query-inbox)
+# Claude-Code-Output
 
 A tiny localhost page that lists the `.sql` files you (or your coding agents) saved recently, gives each a
 **Copy** button, and opens any query in a viewer that makes it easy to read and proofread before you run it.
@@ -88,6 +88,9 @@ Try it on the bundled examples: `python serve.py --root examples`.
   [sqlglot](https://github.com/tobymao/sqlglot), so other dialects are a one-line change in `sqlviz.py`.
 - Copies of a file inside Claude Code worktrees (`.claude/worktrees/<name>/...`) are hidden when they match
   the main checkout, and tagged with the worktree name when they differ.
+- Lists come from a background index (`fileindex.py`): folders are re-listed only when they change and known files
+  re-stat'ed, every 2 s, so a list request never walks the disk (a refresh is ~35 ms on a 25k-file folder; lists answer
+  in ~10 ms; a new file shows up within ~2 s). Virtualenvs, `.git` and `node_modules` are never entered.
 - No build step: `serve.py` (stdlib HTTP server), `sqlviz.py` (query breakdown + checks), `xlsxview.py` (sheet reader,
   needs openpyxl), `index.html` / `xlsx.html` (the pages, plain JS). `python sqlviz.py` and `python xlsxview.py` run their self-checks.
 

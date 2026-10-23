@@ -25,6 +25,7 @@ import shutil
 import subprocess
 
 from sqlviz import analyze, table_target
+from fileindex import FileIndex
 from xlsxview import csv_columns, read_csv, read_sheet, sheet_names
 
 PAGE = Path(__file__).with_name("index.html")
@@ -36,47 +37,53 @@ VIEW_EXT = {".html", ".htm", ".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".g
             ".woff", ".woff2", ".ttf", ".otf", ".geojson", ".csv", ".tsv", ".txt", ".pdf", ".mp4", ".webm"}
 SECRET_NAME = re.compile(r"client_id|secret|credential|token|service.?account|\.clasprc|apikey|api_key|passw", re.I)
 LIMIT = 60
-SKIP = {".git", "node_modules", "__pycache__"}
 ROOT = Path.cwd()
 DAYS = 3
 LINT = None
 
 
-def recent_files(ext=".sql", describe_fn=None, keep=None):
-    describe_fn = describe_fn or describe
-    cutoff = time.time() - DAYS * 86400
-    found = []
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        dirnames[:] = [d for d in dirnames if d not in SKIP and not d.startswith((".venv", "venv"))]
-        for name in filenames:
-            if name.endswith(ext) and not name.startswith("~$"):  # ~$ = Excel's lock file
-                p = Path(dirpath, name)
-                try:
-                    m = p.stat().st_mtime
-                except OSError:
-                    continue
-                if m >= cutoff:
-                    found.append((m, p))
-    found.sort(reverse=True)
-    out = []
-    for m, p in found:
-        if keep and not keep(p):
-            continue
+INDEX = None   # FileIndex, started in __main__
+_DERIVED = {}  # (path, mtime, size, kind) -> list item or False; files are only re-read when they change
+
+
+def _item(p, m, size, describe_fn, keep):
+    key = (str(p), m, size, describe_fn.__name__)
+    if key in _DERIVED:
+        return _DERIVED[key]
+    item = False
+    if not keep or keep(p):
         rel = p.relative_to(ROOT)
         worktree = None
         # Claude Code worktrees: show a copy once if it matches the main checkout
         if rel.parts[:2] == (".claude", "worktrees") and len(rel.parts) > 3:
             worktree = rel.parts[2]
             main = ROOT.joinpath(*rel.parts[3:])
-            if main.is_file() and main.stat().st_size == p.stat().st_size and main.read_bytes() == p.read_bytes():
-                continue
-        item = {"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe_fn(p), "size": p.stat().st_size}
+            try:
+                if main.is_file() and main.stat().st_size == size and main.read_bytes() == p.read_bytes():
+                    worktree = "dup"
+            except OSError:
+                pass
+        item = {"path": str(rel), "mtime": m, "worktree": worktree, "desc": describe_fn(p), "size": size}
         if p.suffix == ".sql":
             try:
                 with p.open(errors="replace") as fh:
                     item["table"] = table_target("".join(line for _, line in zip(range(40), fh)))
             except OSError:
                 pass
+    if len(_DERIVED) > 20000:
+        _DERIVED.clear()
+    _DERIVED[key] = item
+    return item
+
+
+def recent_files(ext=".sql", describe_fn=None, keep=None):
+    describe_fn = describe_fn or describe
+    exts = ext if isinstance(ext, tuple) else (ext,)
+    out = []
+    for m, size, p in INDEX.recent(exts, time.time() - DAYS * 86400):
+        item = _item(p, m, size, describe_fn, keep)
+        if not item or item["worktree"] == "dup":
+            continue
         out.append(item)
         if len(out) == LIMIT:
             break
@@ -244,5 +251,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
     ROOT, DAYS = Path(args.root).expanduser().resolve(), args.days
     LINT = load_lint(args.lint) if args.lint else None
+    def warm():  # read each new / changed file's description now, not when the page asks
+        recent_sql(), recent_files(DATA_EXT, describe_xlsx), recent_files((".html", ".htm"), describe_html, keep=page_like)
+    INDEX = FileIndex(ROOT, (".sql", ".xlsx", ".csv", ".html", ".htm"), on_refresh=warm).start()
     print(f"Claude Output for {ROOT} on http://127.0.0.1:{args.port}")
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
