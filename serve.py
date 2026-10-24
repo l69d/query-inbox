@@ -40,6 +40,7 @@ LIMIT = 60
 ROOT = Path.cwd()
 DAYS = 3
 LINT = None
+CONSOLE = {"url": "", "name": ""}  # where queries are run, e.g. a web SQL editor: --console-url / --console-name
 
 
 INDEX = None   # FileIndex, started in __main__
@@ -167,6 +168,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype + "; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")  # always the current page and lists, never a stale copy
         self.end_headers()
         self.wfile.write(data)
 
@@ -194,6 +196,8 @@ class Handler(BaseHTTPRequestHandler):
                     data = {"error": f"{type(e).__name__}: {e}"}
                 data["mtime"] = p.stat().st_mtime
                 return self.send(json.dumps(data), "application/json")
+        if url.path == "/api/config":
+            return self.send(json.dumps({"console_url": CONSOLE["url"], "console_name": CONSOLE["name"]}), "application/json")
         if url.path == "/api/list":
             return self.send(json.dumps(recent_sql()), "application/json")
         if url.path in ("/api/file", "/api/viz"):
@@ -248,9 +252,12 @@ if __name__ == "__main__":
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--days", type=float, default=3, help="list files saved in the last N days")
     ap.add_argument("--lint", help="optional .py file defining lint(sql) -> list[str]")
+    ap.add_argument("--console-url", default="", help="web SQL editor to open beside each query (copy + open in a new tab)")
+    ap.add_argument("--console-name", default="console", help="its short name on the button, e.g. 'Editor'")
     args = ap.parse_args()
     ROOT, DAYS = Path(args.root).expanduser().resolve(), args.days
     LINT = load_lint(args.lint) if args.lint else None
+    CONSOLE.update(url=args.console_url, name=args.console_name)
     def warm():  # read each new / changed file's description now, not when the page asks
         recent_sql(), recent_files(DATA_EXT, describe_xlsx), recent_files((".html", ".htm"), describe_html, keep=page_like)
     INDEX = FileIndex(ROOT, (".sql", ".xlsx", ".csv", ".html", ".htm"), on_refresh=warm).start()

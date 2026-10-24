@@ -75,6 +75,8 @@ Options:
 | `--port` | `8765` | |
 | `--days` | `3` | how far back the list goes |
 | `--lint` | none | a `.py` file defining `lint(sql) -> list[str]`; its notes show under the checks |
+| `--console-url` | none | your web SQL editor; adds a **<name> ↗** button that copies the query and opens the editor in a new tab, ready to paste |
+| `--console-name` | `console` | the button's label, e.g. `Editor` |
 
 Link straight to one query (handy for an agent to hand you): `http://127.0.0.1:8765/#p=<path relative to
 root>`, plus `&t=steps` or `&t=sql` to pick the tab.

@@ -35,6 +35,12 @@ body.resizing{cursor:col-resize;user-select:none}
 .tline{margin:2px 0 1px;line-height:1}.tline .tag{margin-left:0;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:0}
 .vtag{font-size:12px;padding:2px 8px;border-radius:5px;font-weight:600;margin-left:8px;vertical-align:2px}.ran{opacity:.55}
 button{flex-shrink:0;padding:5px 11px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-size:13px}
+.acts{display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+button.ghost{background:var(--card);color:var(--blue)}
+.vtitle{gap:8px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#1f2328;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;max-width:640px;opacity:0;pointer-events:none;transition:all .2s;z-index:50}
+#toast.show{opacity:1;transform:translateX(-50%)}
+#toast.bad{background:#b91c1c}
 button.done{background:var(--green);border-color:var(--green)}
 #viewer{overflow:auto;padding:0 20px 40px}
 .empty{color:var(--muted);text-align:center;margin-top:30vh}
@@ -107,11 +113,54 @@ async function load() {
 }
 function copyKey(f) { return 'copied:' + f.path + ':' + f.mtime; }
 async function copy(f, btn, row) {
-  const text = await (await fetch('/api/file?p=' + encodeURIComponent(f.path))).text();
+  const text = current && current.path === f.path && current.sql != null ? current.sql
+    : await (await fetch('/api/file?p=' + encodeURIComponent(f.path))).text();
   await navigator.clipboard.writeText(text);
   store.set(copyKey(f), Date.now()/1000);
   drawList(); if (current && current.path === f.path) drawHead();
 }
+// --console-url: copy the query, then open the SQL editor in a new tab, ready for Cmd/Ctrl+V.
+// Copy first: once the new tab has focus, this page can no longer write to the clipboard.
+let consoleCfg = { console_url: '', console_name: '' };
+const consoleBtn = (cls = 'ghost') => consoleCfg.console_url
+  ? `<button class="${cls} qa" title="copy the query and open ${esc(consoleCfg.console_name)} in a new tab - then paste">${esc(consoleCfg.console_name)} ↗</button>` : '';
+const sqlCache = {};  // path:mtime -> text, filled on hover so the click itself never waits
+const cacheKey = f => f.path + ':' + f.mtime;
+function prefetch(f) {
+  const k = cacheKey(f);
+  if (!sqlCache[k]) sqlCache[k] = fetch('/api/file?p=' + encodeURIComponent(f.path)).then(r => r.text()).then(t => (sqlCache[k] = t));
+}
+function toast(msg, bad) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.className = bad ? 'bad show' : 'show';
+  clearTimeout(t._h); t._h = setTimeout(() => t.className = '', bad ? 9000 : 3500);
+}
+function copySync(text) {
+  // execCommand copy runs synchronously inside the click, before any tab can take focus
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+async function copyAndOpen(f) {
+  let text = current && current.path === f.path && current.sql != null ? current.sql : sqlCache[cacheKey(f)];
+  if (typeof text !== 'string') text = await (sqlCache[cacheKey(f)] || (prefetch(f), sqlCache[cacheKey(f)]));
+  // 1. copy while this page still has focus: synchronous first, async clipboard API as the fallback
+  let copied = copySync(text);
+  if (!copied) { try { await navigator.clipboard.writeText(text); copied = true; } catch { copied = false; } }
+  // 2. only then open the editor; the click's user activation is still valid, so no popup blocker
+  const w = window.open(consoleCfg.console_url, '_blank');
+  if (w) { try { w.opener = null; } catch {} }
+  if (!copied) toast(`Couldn't copy the query - use Copy, then paste in ${consoleCfg.console_name}.`, true);
+  else if (!w) toast(`Query copied, but Chrome blocked the new tab - allow pop-ups for this page (icon at the right of the address bar), or open ${consoleCfg.console_name} yourself and paste.`, true);
+  else toast(`Query copied - press Cmd+V in ${consoleCfg.console_name}.`);
+  if (copied) { store.set(copyKey(f), Date.now()/1000); drawList(); if (current && current.path === f.path) drawHead(); }
+}
+
 // a query that runs as an FDP job carries `-- @fdp-job: name` (or @fdp; @table for a plain table query) in its header
 const tableTag = (t, cls) => `<span class="${cls} ${t.kind === 'fdp' ? 'fdp' : 'tbl'}" title="${t.kind === 'fdp' ? 'FDP job query: builds an FDP fact / table' : 'builds a table'}">${t.kind === 'fdp' ? 'FDP job' : 'TABLE'}${t.name ? ' → ' + esc(t.name) : ''}</span>`;
 function drawList() {
@@ -122,7 +171,7 @@ function drawList() {
     const parts = f.path.split('/'), name = parts.pop();
     const row = document.createElement('div');
     row.className = 'row' + (current && current.path === f.path ? ' sel' : '');
-    row.innerHTML = `<div class="grow"><div class="name"></div><div class="desc"></div><div class="dir"></div></div><div class="when"></div><button>Copy</button>`;
+    row.innerHTML = `<div class="grow"><div class="name"></div><div class="desc"></div><div class="dir"></div></div><div class="when"></div><div class="acts"><button class="cp">Copy</button>${consoleBtn('ghost')}</div>`;
     const nm = $('.name', row); nm.textContent = name;
     if (Date.now()/1000 - f.mtime < 900) nm.insertAdjacentHTML('beforeend', '<span class="tag new">new</span>');
     if (f.worktree) nm.insertAdjacentHTML('beforeend', `<span class="tag wt">${esc(f.worktree)}</span>`);
@@ -130,9 +179,11 @@ function drawList() {
     $('.desc', row).textContent = f.desc;
     $('.dir', row).textContent = (f.worktree ? parts.slice(3) : parts).join('/');
     $('.when', row).textContent = ago(f.mtime);
-    const btn = $('button', row), seen = store.get(copyKey(f));
-    if (seen) { btn.textContent = 'Copied'; btn.className = 'done'; row.classList.add('ran'); }
+    const btn = $('button.cp', row), seen = store.get(copyKey(f));
+    if (seen) { btn.textContent = 'Copied'; btn.className = 'cp done'; row.classList.add('ran'); }
     btn.onclick = e => { e.stopPropagation(); copy(f, btn, row); };
+    const qa = $('button.qa', row);
+    if (qa) { qa.onclick = e => { e.stopPropagation(); copyAndOpen(f); }; qa.onmouseenter = () => prefetch(f); }
     row.onclick = () => open(f);
     list.appendChild(row);
   }
@@ -152,10 +203,12 @@ async function open(f, keepScroll) {
 function drawHead() {
   const f = current, seen = store.get(copyKey(f));
   const head = $('.vhead');
-  head.innerHTML = `<div class="vtitle"><h2>${esc(f.path.split('/').pop())}${f.viz.table ? tableTag(f.viz.table, 'vtag') : ''}</h2><button class="${seen ? 'done' : ''}">${seen ? 'Copied ' + ago(+seen) : 'Copy query'}</button></div>
+  head.innerHTML = `<div class="vtitle"><h2>${esc(f.path.split('/').pop())}${f.viz.table ? tableTag(f.viz.table, 'vtag') : ''}</h2>${consoleBtn('ghost')}<button class="cp ${seen ? 'done' : ''}">${seen ? 'Copied ' + ago(+seen) : 'Copy query'}</button></div>
     <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${current.sql.split('\n').length} lines · ${esc(f.viz.dialect === 'spark' ? 'Spark SQL' : 'BigQuery')}</div>
     <div class="tabs">${['flow','steps','sql'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${{flow:'Flow',steps:'Steps',sql:'SQL'}[t]}</a>`).join('')}</div>`;
-  $('button', head).onclick = () => copy(f);
+  $('button.cp', head).onclick = () => copy(f);
+  const qa = $('button.qa', head);
+  if (qa) qa.onclick = () => copyAndOpen(f);
   head.querySelectorAll('.tabs a').forEach(a => a.onclick = () => { tab = a.dataset.t; store.set('tab', tab); drawViewer(); });
 }
 function drawViewer() {
@@ -292,6 +345,7 @@ $('#q').oninput = drawList;
 try { $('#only').checked = store.get('onlyTables') === '1'; } catch {}
 $('#only').onchange = () => { store.set('onlyTables', $('#only').checked ? '1' : '0'); drawList(); };
 (async () => {
+  try { consoleCfg = await (await fetch('/api/config')).json(); } catch {}
   await load();
   const p = decodeURIComponent((location.hash.match(/p=([^&]+)/) || [])[1] || '');
   const f = p && (files.find(f => f.path === p) || { path: p, mtime: 0, desc: '' });
