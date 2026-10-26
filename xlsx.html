@@ -56,7 +56,7 @@ table.grid{border-collapse:separate;border-spacing:0;font:12px/1.35 -apple-syste
 </style>
 </head>
 <body>
-<header><a class="brand" href="/"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><g fill="#D97757"><rect x="10.9" y="2.0" width="2.2" height="10.0" rx="1.1" transform="rotate(0 12 12)"/><rect x="10.9" y="3.8" width="2.2" height="8.2" rx="1.1" transform="rotate(30 12 12)"/><rect x="10.9" y="2.6" width="2.2" height="9.4" rx="1.1" transform="rotate(60 12 12)"/><rect x="10.9" y="4.4" width="2.2" height="7.6" rx="1.1" transform="rotate(90 12 12)"/><rect x="10.9" y="2.0" width="2.2" height="10.0" rx="1.1" transform="rotate(120 12 12)"/><rect x="10.9" y="3.4" width="2.2" height="8.6" rx="1.1" transform="rotate(150 12 12)"/><rect x="10.9" y="3.0" width="2.2" height="9.0" rx="1.1" transform="rotate(180 12 12)"/><rect x="10.9" y="4.2" width="2.2" height="7.8" rx="1.1" transform="rotate(210 12 12)"/><rect x="10.9" y="2.2" width="2.2" height="9.8" rx="1.1" transform="rotate(240 12 12)"/><rect x="10.9" y="3.6" width="2.2" height="8.4" rx="1.1" transform="rotate(270 12 12)"/><rect x="10.9" y="2.8" width="2.2" height="9.2" rx="1.1" transform="rotate(300 12 12)"/><rect x="10.9" y="4.6" width="2.2" height="7.4" rx="1.1" transform="rotate(330 12 12)"/></g></svg><span>Claude Output</span></a><nav><a href="/">Queries<small>.sql</small></a><a class="on" href="/xlsx">Sheets<small>.xlsx · .csv</small></a><a href="/html">Pages<small>.html</small></a></nav><input id="q" placeholder="filter by name / folder / sheet / column"></header>
+<header><a class="brand" href="/"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><g fill="#D97757"><rect x="10.9" y="2.0" width="2.2" height="10.0" rx="1.1" transform="rotate(0 12 12)"/><rect x="10.9" y="3.8" width="2.2" height="8.2" rx="1.1" transform="rotate(30 12 12)"/><rect x="10.9" y="2.6" width="2.2" height="9.4" rx="1.1" transform="rotate(60 12 12)"/><rect x="10.9" y="4.4" width="2.2" height="7.6" rx="1.1" transform="rotate(90 12 12)"/><rect x="10.9" y="2.0" width="2.2" height="10.0" rx="1.1" transform="rotate(120 12 12)"/><rect x="10.9" y="3.4" width="2.2" height="8.6" rx="1.1" transform="rotate(150 12 12)"/><rect x="10.9" y="3.0" width="2.2" height="9.0" rx="1.1" transform="rotate(180 12 12)"/><rect x="10.9" y="4.2" width="2.2" height="7.8" rx="1.1" transform="rotate(210 12 12)"/><rect x="10.9" y="2.2" width="2.2" height="9.8" rx="1.1" transform="rotate(240 12 12)"/><rect x="10.9" y="3.6" width="2.2" height="8.4" rx="1.1" transform="rotate(270 12 12)"/><rect x="10.9" y="2.8" width="2.2" height="9.2" rx="1.1" transform="rotate(300 12 12)"/><rect x="10.9" y="4.6" width="2.2" height="7.4" rx="1.1" transform="rotate(330 12 12)"/></g></svg><span>Claude Output</span></a><nav><a href="/">Queries<small>.sql</small></a><a class="on" href="/xlsx">Sheets<small>.xlsx · .csv</small></a><a href="/html">Pages<small>.html</small></a></nav><input id="q" placeholder="search all sheets & CSVs, any age"></header>
 <main>
   <div id="list"><div class="empty" style="margin-top:20vh">Loading…</div></div>
   <div id="split" title="drag to resize · double-click to reset"></div>
@@ -76,7 +76,9 @@ let files = [], current = null;
 
 // ---------- list ----------
 async function load() {
-  files = await (await fetch('/api/xlsx/list')).json();
+  const q = $('#q').value.trim();
+  files = await (await fetch('/api/xlsx/list' + (q ? '?q=' + encodeURIComponent(q) : ''))).json();
+  $('#list').dataset.q = q;
   drawList();
   if (current) {  // the open workbook was rewritten: reload the sheet in place
     const f = files.find(f => f.path === current.path);
@@ -84,9 +86,9 @@ async function load() {
   }
 }
 function drawList() {
-  const q = $('#q').value.toLowerCase(), list = $('#list');
-  list.innerHTML = '';
-  for (const f of files.filter(f => (f.path + ' ' + f.desc).toLowerCase().includes(q))) {
+  const list = $('#list');
+  list.innerHTML = files.length ? '' : `<div class="empty" style="margin-top:20vh">${list.dataset.q ? 'Nothing matches “' + esc(list.dataset.q) + '”.' : 'Nothing saved in the last few days.'}</div>`;
+  for (const f of files) {
     const parts = f.path.split('/'), name = parts.pop();
     const row = document.createElement('div');
     row.className = 'row' + (current && current.path === f.path ? ' sel' : '') + (store.get('seen:' + f.path + ':' + f.mtime) ? ' seen' : '');
@@ -190,7 +192,9 @@ function filterRows(q) {
   $('#rc').textContent = q ? `${shown} matching row${shown === 1 ? '' : 's'}` : '';
 }
 
-$('#q').oninput = drawList;
+// the search box asks the server, which searches every file of any age (the default list is the last few days)
+let searchTimer;
+$('#q').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(load, 200); };
 (async () => {
   await load();
   const h = new URLSearchParams(location.hash.slice(1)), p = h.get('p');

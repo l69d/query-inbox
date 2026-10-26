@@ -78,6 +78,15 @@ Options:
 | `--console-url` | none | your web SQL editor; adds a **<name> ↗** button that copies the query and opens the editor in a new tab, ready to paste |
 | `--console-name` | `console` | the button's label, e.g. `Editor` |
 
+**Auto-paste.** With `--console-url` set, the button can also paste the query into the editor by itself. A page can't
+type into another site's tab, so this uses a small userscript on the editor's page: open `/autopaste` for the one-time
+setup (Tampermonkey + one click). The script is generated from `--console-url` (its `@match` is your editor), picks the
+query up from this server once (within 60 s of the click; nothing goes in the editor's URL), and puts it in Monaco,
+CodeMirror 5/6, Ace or a plain textarea. The query is always on the clipboard too.
+
+**Search** looks through every file of any age (names and folders; descriptions too for the last 45 days); the
+default list shows the last few days.
+
 Link straight to one query (handy for an agent to hand you): `http://127.0.0.1:8765/#p=<path relative to
 root>`, plus `&t=steps` or `&t=sql` to pick the tab.
 

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Output · auto-paste</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--line:#e3e6ea;--ink:#1f2328;--muted:#6b7280;--blue:#2563eb;--green:#16a34a}
+body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+main{max-width:720px;margin:40px auto;padding:0 16px}
+h1{font-size:22px;margin:0 0 6px}p.sub{color:var(--muted);margin:0 0 24px}
+ol{padding:0;list-style:none;counter-reset:s}
+li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px 14px 56px;margin-bottom:12px;position:relative;counter-increment:s}
+li::before{content:counter(s);position:absolute;left:16px;top:14px;width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center}
+a.btn{display:inline-block;margin-top:8px;padding:7px 14px;border-radius:7px;background:var(--blue);color:#fff;text-decoration:none;font-size:14px}
+code{background:#eef0f3;padding:1px 6px;border-radius:4px;font-size:13px}
+.status{padding:10px 14px;border-radius:8px;margin-bottom:20px;font-size:14px}
+.ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}.no{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+.muted{color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>Auto-paste into <span class="name">your SQL editor</span></h1>
+<p class="sub">Click <b class="btnname">↗</b> on a query in Claude Output and it opens the editor with the query already pasted in.
+A web page can't type into another site's tab on its own, so this needs a small userscript running on the editor's page.
+One-time setup, about a minute.</p>
+<div id="status" class="status no">Checking…</div>
+<ol>
+<li><b>Install Tampermonkey</b> (the userscript manager) in Chrome.<br>
+<a class="btn" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Open Tampermonkey in the Chrome Web Store</a></li>
+<li><b>Let it run userscripts.</b> Open <code>chrome://extensions</code>, find Tampermonkey → <b>Details</b>, and turn on
+<b>Allow User Scripts</b> (on older Chrome versions: turn on <b>Developer mode</b> at the top right instead).</li>
+<li><b>Install the auto-paste script.</b> Tampermonkey shows the script and asks you to confirm: click <b>Install</b>.<br>
+<a class="btn" href="/claude-output-autopaste.user.js">Install the auto-paste script</a>
+<p class="muted">It only runs on <code class="match"></code>, and only talks to Claude Output on this computer
+(127.0.0.1). If you open the editor yourself, it does nothing.</p></li>
+<li><b>Try it:</b> back in Claude Output, click <b class="btnname">↗</b> on any query. The editor opens and the query appears in
+it, with a "Pasted … from Claude Output" note at the bottom. This page then shows ✓.</li>
+</ol>
+<p class="muted">If the editor ever isn't found, the query is still on your clipboard: press Cmd+V.</p>
+</main>
+<script>
+(async () => {
+  let c = {};
+  try { c = await (await fetch('/api/config')).json(); } catch {}
+  const name = c.console_name || 'your SQL editor';
+  document.querySelectorAll('.name').forEach(e => e.textContent = name);
+  document.querySelectorAll('.btnname').forEach(e => e.textContent = name + ' ↗');
+  try { const u = new URL(c.console_url); document.querySelector('.match').textContent = u.host + u.pathname; } catch {}
+  const st = document.getElementById('status');
+  if (!c.console_url) { st.textContent = 'No SQL editor is set up: start Claude Output with --console-url.'; return; }
+  st.className = 'status ' + (c.autopaste ? 'ok' : 'no');
+  st.textContent = c.autopaste ? '✓ Auto-paste is set up and has checked in.' : 'Not set up yet: follow the steps below.';
+})();
+</script>
+</body>
+</html>

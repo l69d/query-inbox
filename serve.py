@@ -41,6 +41,13 @@ ROOT = Path.cwd()
 DAYS = 3
 LINT = None
 CONSOLE = {"url": "", "name": ""}  # where queries are run, e.g. a web SQL editor: --console-url / --console-name
+# Auto-paste: the page hands a query over here, then opens the editor; the auto-paste userscript on the editor's
+# page collects it once (within HANDOFF_TTL seconds) and pastes it. Nothing travels in the editor's URL.
+HANDOFF = {"sql": None, "t": 0, "path": ""}
+HANDOFF_TTL = 60
+SEEN_FILE = Path(__file__).with_name(".autopaste_seen")  # last userscript check-in, kept across restarts
+AUTOPASTE = {"seen": float(SEEN_FILE.read_text()) if SEEN_FILE.exists() else 0}
+USERSCRIPT = Path(__file__).with_name("autopaste.user.js")
 
 
 INDEX = None   # FileIndex, started in __main__
@@ -77,16 +84,30 @@ def _item(p, m, size, describe_fn, keep):
     return item
 
 
-def recent_files(ext=".sql", describe_fn=None, keep=None):
+SEARCH_LIMIT = 150
+DESC_SEARCH_DAYS = 45  # beyond this a search matches file names / folders only, so it never reads thousands of files
+
+
+def recent_files(ext=".sql", describe_fn=None, keep=None, query=""):
+    """The newest files (last DAYS days); with a query, matching files of any age instead."""
     describe_fn = describe_fn or describe
     exts = ext if isinstance(ext, tuple) else (ext,)
-    out = []
-    for m, size, p in INDEX.recent(exts, time.time() - DAYS * 86400):
+    terms = query.lower().split()
+    now, out = time.time(), []
+    for m, size, p in INDEX.recent(exts, 0 if terms else now - DAYS * 86400):
+        rel = str(p.relative_to(ROOT)).lower()
+        if terms and not all(t in rel for t in terms):
+            if now - m > DESC_SEARCH_DAYS * 86400:
+                continue
+            item = _item(p, m, size, describe_fn, keep)  # recent enough: also match the description / table
+            hay = rel + " " + (item["desc"] if item else "").lower() + " " + ((item.get("table") or {}).get("name", "") if item else "")
+            if not all(t in hay for t in terms):
+                continue
         item = _item(p, m, size, describe_fn, keep)
         if not item or item["worktree"] == "dup":
             continue
         out.append(item)
-        if len(out) == LIMIT:
+        if len(out) == (SEARCH_LIMIT if terms else LIMIT):
             break
     return out
 
@@ -143,8 +164,8 @@ def describe_html(p):
     return ""
 
 
-def recent_sql():
-    return recent_files(".sql")
+def recent_sql(query=""):
+    return recent_files(".sql", query=query)
 
 
 def inside_root(rel, ext):
@@ -182,11 +203,11 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/html":
             return self.send(HTML_PAGE.read_text(), "text/html")
         if url.path == "/api/html/list":
-            return self.send(json.dumps(recent_files((".html", ".htm"), describe_html, keep=page_like)), "application/json")
+            return self.send(json.dumps(recent_files((".html", ".htm"), describe_html, keep=page_like, query=q.get("q", [""])[0])), "application/json")
         if url.path.startswith("/view/"):
             return self.view(url.path[len("/view/"):])
         if url.path == "/api/xlsx/list":
-            return self.send(json.dumps(recent_files(DATA_EXT, describe_xlsx)), "application/json")
+            return self.send(json.dumps(recent_files(DATA_EXT, describe_xlsx, query=q.get("q", [""])[0])), "application/json")
         if url.path == "/api/xlsx/sheet":
             p = inside_root(q.get("p", [""])[0], DATA_EXT)
             if p:
@@ -197,9 +218,29 @@ class Handler(BaseHTTPRequestHandler):
                 data["mtime"] = p.stat().st_mtime
                 return self.send(json.dumps(data), "application/json")
         if url.path == "/api/config":
-            return self.send(json.dumps({"console_url": CONSOLE["url"], "console_name": CONSOLE["name"]}), "application/json")
+            return self.send(json.dumps({"console_url": CONSOLE["url"], "console_name": CONSOLE["name"],
+                                         "autopaste": time.time() - AUTOPASTE["seen"] < 7 * 86400}), "application/json")
+        if url.path == "/autopaste":
+            return self.send(Path(__file__).with_name("autopaste.html").read_text(), "text/html")
+        if url.path == "/claude-output-autopaste.user.js" and CONSOLE["url"]:
+            # filled in from --console-url at request time, so the editor's address never lives in the code
+            from urllib.parse import urlsplit
+            u = urlsplit(CONSOLE["url"])
+            js = (USERSCRIPT.read_text().replace("__MATCH__", f"{u.scheme}://{u.netloc}{u.path}*")
+                  .replace("__NAME__", CONSOLE["name"]).replace("__PORT__", str(self.server.server_address[1])))
+            return self.send(js, "text/javascript")
+        if url.path == "/api/handoff/take":
+            # read only by the userscript: it uses GM_xmlhttpRequest, which needs no CORS; a normal web page
+            # cannot read this response (no Access-Control-Allow-Origin), so other sites can't fish for queries
+            if self.headers.get("X-Claude-Output-Autopaste") == "1":  # the userscript itself, not any caller
+                AUTOPASTE["seen"] = time.time()
+                SEEN_FILE.write_text(str(AUTOPASTE["seen"]))
+            fresh = HANDOFF["sql"] is not None and time.time() - HANDOFF["t"] < HANDOFF_TTL
+            body = {"sql": HANDOFF["sql"], "path": HANDOFF["path"]} if fresh else {"sql": None}
+            HANDOFF.update(sql=None, t=0, path="")
+            return self.send(json.dumps(body), "application/json")
         if url.path == "/api/list":
-            return self.send(json.dumps(recent_sql()), "application/json")
+            return self.send(json.dumps(recent_sql(q.get("q", [""])[0])), "application/json")
         if url.path in ("/api/file", "/api/viz"):
             p = (ROOT / parse_qs(url.query).get("p", [""])[0]).resolve()
             # only .sql files inside the root
@@ -237,6 +278,11 @@ class Handler(BaseHTTPRequestHandler):
         # the Pages viewer run in a sandboxed frame with an opaque origin, so they cannot either.
         url = urlparse(self.path)
         p = inside_root(parse_qs(url.query).get("p", [""])[0], DATA_EXT + (".html", ".htm"))
+        if url.path == "/api/handoff" and self.headers.get("X-Inbox") == "1":
+            sp = inside_root(parse_qs(url.query).get("p", [""])[0], ".sql")
+            if sp:
+                HANDOFF.update(sql=sp.read_text(errors="replace"), t=time.time(), path=str(sp.relative_to(ROOT)))
+                return self.send("ok", "text/plain")
         if url.path in ("/api/xlsx/open", "/api/xlsx/reveal") and p and self.headers.get("X-Inbox") == "1":
             subprocess.Popen(["open", str(p)] if url.path.endswith("open") else ["open", "-R", str(p)])
             return self.send("ok", "text/plain")
