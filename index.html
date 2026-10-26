@@ -36,7 +36,8 @@ body.resizing{cursor:col-resize;user-select:none}
 .vtag{font-size:12px;padding:2px 8px;border-radius:5px;font-weight:600;margin-left:8px;vertical-align:2px}.ran{opacity:.55}
 button{flex-shrink:0;padding:5px 11px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-size:13px}
 .acts{display:flex;flex-direction:column;gap:4px;flex-shrink:0}
-button.ghost{background:var(--card);color:var(--blue)}
+button.ghost,a.btn.ghost{background:var(--card);color:var(--blue)}
+a.btn{flex-shrink:0;padding:5px 11px;border:1px solid var(--blue);border-radius:6px;font-size:13px;text-decoration:none;text-align:center;cursor:pointer}
 .vtitle{gap:8px}
 .aplink{font-size:12px;color:var(--blue);white-space:nowrap;text-decoration:none;margin-left:auto}.aplink.on{color:var(--green)}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#1f2328;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;max-width:640px;opacity:0;pointer-events:none;transition:all .2s;z-index:50}
@@ -126,7 +127,7 @@ async function copy(f, btn, row) {
 // Copy first: once the new tab has focus, this page can no longer write to the clipboard.
 let consoleCfg = { console_url: '', console_name: '' };
 const consoleBtn = (cls = 'ghost') => consoleCfg.console_url
-  ? `<button class="${cls} qa" title="copy the query and open ${esc(consoleCfg.console_name)} in a new tab - then paste">${esc(consoleCfg.console_name)} ↗</button>` : '';
+  ? `<a class="btn ${cls} qa" href="${esc(consoleCfg.console_url)}" target="_blank" rel="noopener" title="open ${esc(consoleCfg.console_name)} in a new tab with this query">${esc(consoleCfg.console_name)} ↗</a>` : '';
 const sqlCache = {};  // path:mtime -> text, filled on hover so the click itself never waits
 const cacheKey = f => f.path + ':' + f.mtime;
 function prefetch(f) {
@@ -149,22 +150,17 @@ function copySync(text) {
   ta.remove();
   return ok;
 }
-async function copyAndOpen(f) {
-  let text = current && current.path === f.path && current.sql != null ? current.sql : sqlCache[cacheKey(f)];
-  if (typeof text !== 'string') text = await (sqlCache[cacheKey(f)] || (prefetch(f), sqlCache[cacheKey(f)]));
-  // 1. copy while this page still has focus: synchronous first, async clipboard API as the fallback
-  let copied = copySync(text);
-  if (!copied) { try { await navigator.clipboard.writeText(text); copied = true; } catch { copied = false; } }
-  // 2. hand it to the server for the auto-paste userscript on the editor's page (a few ms, local)
-  try { await fetch('/api/handoff?p=' + encodeURIComponent(f.path), { method: 'POST', headers: { 'X-Inbox': '1' } }); } catch {}
-  // 3. only then open the editor; the click's user activation is still valid, so no popup blocker
-  const w = window.open(consoleCfg.console_url, '_blank');
-  if (w) { try { w.opener = null; } catch {} }
-  if (!copied) toast(`Couldn't copy the query - use Copy, then paste in ${consoleCfg.console_name}.`, true);
-  else if (!w) toast(`Query copied, but Chrome blocked the new tab - allow pop-ups for this page (icon at the right of the address bar), or open ${consoleCfg.console_name} yourself and paste.`, true);
-  else if (consoleCfg.autopaste) toast(`Opening ${consoleCfg.console_name} - the query pastes itself (also on your clipboard).`);
-  else toast(`Query copied - press Cmd+V in ${consoleCfg.console_name}. To have it paste itself, set up auto-paste (link at the top).`);
-  if (copied) { store.set(copyKey(f), Date.now()/1000); drawList(); if (current && current.path === f.path) drawHead(); }
+function copyAndOpen(f, e) {
+  // runs on the link's click and lets the browser open the link as usual (no preventDefault)
+  if (e) e.stopPropagation();
+  const k = cacheKey(f);
+  const text = current && current.path === f.path && current.sql != null ? current.sql : sqlCache[k];
+  const copied = typeof text === 'string' && copySync(text);
+  // hand it to the server for the auto-paste userscript; keepalive lets the request finish as the tab switches
+  fetch('/api/handoff?p=' + encodeURIComponent(f.path), { method: 'POST', headers: { 'X-Inbox': '1' }, keepalive: true }).catch(() => {});
+  if (copied) { store.set(copyKey(f), Date.now()/1000); setTimeout(() => { drawList(); if (current && current.path === f.path) drawHead(); }, 50); }
+  if (consoleCfg.autopaste) toast(`Opening ${consoleCfg.console_name} - the query pastes itself${copied ? ' (also on your clipboard)' : ''}.`);
+  else toast(copied ? `Query copied - press Cmd+V in ${consoleCfg.console_name}.` : `Opening ${consoleCfg.console_name}.`);
 }
 
 // a query that runs as an FDP job carries `-- @fdp-job: name` (or @fdp; @table for a plain table query) in its header
@@ -188,8 +184,8 @@ function drawList() {
     const btn = $('button.cp', row), seen = store.get(copyKey(f));
     if (seen) { btn.textContent = 'Copied'; btn.className = 'cp done'; row.classList.add('ran'); }
     btn.onclick = e => { e.stopPropagation(); copy(f, btn, row); };
-    const qa = $('button.qa', row);
-    if (qa) { qa.onclick = e => { e.stopPropagation(); copyAndOpen(f); }; qa.onmouseenter = () => prefetch(f); }
+    const qa = $('.qa', row);
+    if (qa) { qa.onclick = e => copyAndOpen(f, e); qa.onmouseenter = () => prefetch(f); }
     row.onclick = () => open(f);
     list.appendChild(row);
   }
@@ -213,8 +209,8 @@ function drawHead() {
     <div class="vsub">${esc(f.path)} · saved ${ago(f.mtime)} · ${current.sql.split('\n').length} lines · ${esc(f.viz.dialect === 'spark' ? 'Spark SQL' : 'BigQuery')}</div>
     <div class="tabs">${['flow','steps','sql'].map(t => `<a data-t="${t}" class="${t === tab ? 'on' : ''}">${{flow:'Flow',steps:'Steps',sql:'SQL'}[t]}</a>`).join('')}</div>`;
   $('button.cp', head).onclick = () => copy(f);
-  const qa = $('button.qa', head);
-  if (qa) qa.onclick = () => copyAndOpen(f);
+  const qa = $('.qa', head);
+  if (qa) qa.onclick = e => copyAndOpen(f, e);
   head.querySelectorAll('.tabs a').forEach(a => a.onclick = () => { tab = a.dataset.t; store.set('tab', tab); drawViewer(); });
 }
 function drawViewer() {

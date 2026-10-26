@@ -45,6 +45,14 @@ CONSOLE = {"url": "", "name": ""}  # where queries are run, e.g. a web SQL edito
 # page collects it once (within HANDOFF_TTL seconds) and pastes it. Nothing travels in the editor's URL.
 HANDOFF = {"sql": None, "t": 0, "path": ""}
 HANDOFF_TTL = 60
+from collections import deque
+EVENTS = deque(maxlen=30)  # the last auto-paste steps, shown on /autopaste so a failure says where it stopped
+
+
+def event(kind, **kw):
+    EVENTS.appendleft({"t": time.time(), "kind": kind, **kw})
+
+
 SEEN_FILE = Path(__file__).with_name(".autopaste_seen")  # last userscript check-in, kept across restarts
 AUTOPASTE = {"seen": float(SEEN_FILE.read_text()) if SEEN_FILE.exists() else 0}
 USERSCRIPT = Path(__file__).with_name("autopaste.user.js")
@@ -220,6 +228,8 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/config":
             return self.send(json.dumps({"console_url": CONSOLE["url"], "console_name": CONSOLE["name"],
                                          "autopaste": time.time() - AUTOPASTE["seen"] < 7 * 86400}), "application/json")
+        if url.path == "/api/autopaste/log":
+            return self.send(json.dumps(list(EVENTS)), "application/json")
         if url.path == "/autopaste":
             return self.send(Path(__file__).with_name("autopaste.html").read_text(), "text/html")
         if url.path == "/claude-output-autopaste.user.js" and CONSOLE["url"]:
@@ -237,6 +247,8 @@ class Handler(BaseHTTPRequestHandler):
                 SEEN_FILE.write_text(str(AUTOPASTE["seen"]))
             fresh = HANDOFF["sql"] is not None and time.time() - HANDOFF["t"] < HANDOFF_TTL
             body = {"sql": HANDOFF["sql"], "path": HANDOFF["path"]} if fresh else {"sql": None}
+            event("picked_up" if fresh else "checked_nothing_waiting", path=HANDOFF["path"],
+                  by="userscript" if self.headers.get("X-Claude-Output-Autopaste") == "1" else "other")
             HANDOFF.update(sql=None, t=0, path="")
             return self.send(json.dumps(body), "application/json")
         if url.path == "/api/list":
@@ -282,7 +294,17 @@ class Handler(BaseHTTPRequestHandler):
             sp = inside_root(parse_qs(url.query).get("p", [""])[0], ".sql")
             if sp:
                 HANDOFF.update(sql=sp.read_text(errors="replace"), t=time.time(), path=str(sp.relative_to(ROOT)))
+                event("handed_over", path=HANDOFF["path"])
                 return self.send("ok", "text/plain")
+        if url.path == "/api/autopaste/report" and self.headers.get("X-Claude-Output-Autopaste") == "1":
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                rep = json.loads(self.rfile.read(min(n, 20000)) or b"{}")
+            except ValueError:
+                rep = {}
+            event("pasted" if rep.get("how") else "editor_not_found", how=rep.get("how"), page=str(rep.get("url", ""))[:200],
+                  hints=rep.get("hints"))
+            return self.send("ok", "text/plain")
         if url.path in ("/api/xlsx/open", "/api/xlsx/reveal") and p and self.headers.get("X-Inbox") == "1":
             subprocess.Popen(["open", str(p)] if url.path.endswith("open") else ["open", "-R", str(p)])
             return self.send("ok", "text/plain")

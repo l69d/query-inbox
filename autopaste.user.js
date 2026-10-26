@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Claude Output auto-paste (__NAME__)
 // @namespace    claude-code-output
-// @version      1.0
+// @version      1.1
+// @updateURL    http://127.0.0.1:__PORT__/claude-output-autopaste.user.js
+// @downloadURL  http://127.0.0.1:__PORT__/claude-output-autopaste.user.js
 // @description  When you click "__NAME__ ↗" in Claude Output, paste that query into this editor.
 // @match        __MATCH__
 // @grant        GM_xmlhttpRequest
@@ -79,11 +81,29 @@
     return "paste";
   }
 
+  function report(how) {
+    // which editor-like things the page has, so a miss can be fixed without guessing
+    const count = (sel) => document.querySelectorAll(sel).length;
+    const hints = {
+      monaco: count(".monaco-editor"), monacoGlobal: !!W.monaco, cm5: count(".CodeMirror"), cm6: count(".cm-editor"),
+      ace: count(".ace_editor"), textarea: count("textarea"), contenteditable: count("[contenteditable='true']"),
+      iframes: count("iframe"),
+      editorish: [...new Set([...document.querySelectorAll("[class*='editor' i], [class*='Editor']")].slice(0, 40)
+        .map((e) => e.tagName.toLowerCase() + "." + String(e.className).split(/\s+/).slice(0, 3).join(".")))].slice(0, 12),
+    };
+    GM_xmlhttpRequest({
+      method: "POST", url: "http://127.0.0.1:__PORT__/api/autopaste/report",
+      headers: { "X-Claude-Output-Autopaste": "1", "Content-Type": "application/json" },
+      data: JSON.stringify({ how, url: location.href, hints }),
+    });
+  }
+
   function waitAndInsert(text, path, deadline) {
     const how = insert(text);
-    if (how) { toast(`Pasted ${path.split("/").pop()} from Claude Output`); return; }
+    if (how) { toast(`Pasted ${path.split("/").pop()} from Claude Output`); report(how); return; }
     if (Date.now() < deadline) return setTimeout(() => waitAndInsert(text, path, deadline), 300);
     toast("Claude Output: couldn't find the editor on this page. The query is on your clipboard: press Cmd+V.", true);
+    report(null);
   }
 
   GM_xmlhttpRequest({

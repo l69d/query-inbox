@@ -39,6 +39,9 @@ One-time setup, about a minute.</p>
 it, with a "Pasted … from Claude Output" note at the bottom. This page then shows ✓.</li>
 </ol>
 <p class="muted">If the editor ever isn't found, the query is still on your clipboard: press Cmd+V.</p>
+<h2 style="font-size:16px;margin:28px 0 8px">What happened on the last clicks</h2>
+<p class="muted">Newest first. A click should show: handed over → picked up → pasted.</p>
+<div id="log" class="muted">Loading…</div>
 </main>
 <script>
 (async () => {
@@ -53,6 +56,20 @@ it, with a "Pasted … from Claude Output" note at the bottom. This page then sh
   st.className = 'status ' + (c.autopaste ? 'ok' : 'no');
   st.textContent = c.autopaste ? '✓ Auto-paste is set up and has checked in.' : 'Not set up yet: follow the steps below.';
 })();
+const LABEL = { handed_over: 'Claude Output handed the query over and opened the editor',
+  picked_up: 'The editor page picked it up', checked_nothing_waiting: 'The editor page checked in, nothing was waiting',
+  pasted: 'Pasted into the editor', editor_not_found: "Editor page loaded, but the script couldn't find the editor" };
+async function drawLog() {
+  let ev = [];
+  try { ev = await (await fetch('/api/autopaste/log')).json(); } catch {}
+  const el = document.getElementById('log');
+  if (!ev.length) { el.textContent = 'Nothing yet since Claude Output last started. Click the editor button on a query, then come back here.'; return; }
+  el.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:13px">' + ev.map(e =>
+    `<tr style="border-top:1px solid #e3e6ea"><td style="padding:6px 10px 6px 0;white-space:nowrap;color:#6b7280">${new Date(e.t * 1000).toLocaleTimeString()}</td>` +
+    `<td style="padding:6px 0">${LABEL[e.kind] || e.kind}${e.how ? ' (' + e.how + ')' : ''}${e.path ? '<br><code>' + e.path.split('/').pop() + '</code>' : ''}` +
+    `${e.hints ? '<br><code style="white-space:pre-wrap">' + JSON.stringify(e.hints) + '</code>' : ''}</td></tr>`).join('') + '</table>';
+}
+drawLog(); setInterval(drawLog, 3000);
 </script>
 </body>
 </html>
