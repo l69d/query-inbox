@@ -1,4 +1,4 @@
-"""Claude Output: localhost pages listing the newest files an agent (or you) wrote under a folder.
+"""Outbox: localhost pages listing the newest files an agent (or you) wrote under a folder.
   Queries (/)     .sql  -- Copy button each; viewer breaks the query into a flow diagram, steps and SQL.
   Sheets (/xlsx)  .xlsx / .csv -- each sheet rendered in the browser, Open in Excel / Show in Finder.
   Pages (/html)   .html -- each page rendered in a sandboxed frame, open in a new tab / Show in Finder.
@@ -232,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps(list(EVENTS)), "application/json")
         if url.path == "/autopaste":
             return self.send(Path(__file__).with_name("autopaste.html").read_text(), "text/html")
-        if url.path == "/claude-output-autopaste.user.js" and CONSOLE["url"]:
+        if url.path in ("/outbox-autopaste.user.js", "/claude-output-autopaste.user.js") and CONSOLE["url"]:  # old name: updates
             # filled in from --console-url at request time, so the editor's address never lives in the code
             from urllib.parse import urlsplit
             u = urlsplit(CONSOLE["url"])
@@ -329,5 +329,5 @@ if __name__ == "__main__":
     def warm():  # read each new / changed file's description now, not when the page asks
         recent_sql(), recent_files(DATA_EXT, describe_xlsx), recent_files((".html", ".htm"), describe_html, keep=page_like)
     INDEX = FileIndex(ROOT, (".sql", ".xlsx", ".csv", ".html", ".htm"), on_refresh=warm).start()
-    print(f"Claude Output for {ROOT} on http://127.0.0.1:{args.port}")
+    print(f"Outbox for {ROOT} on http://127.0.0.1:{args.port}")
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()

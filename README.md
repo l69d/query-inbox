@@ -1,4 +1,4 @@
-# Claude-Code-Output
+# Outbox
 
 A tiny localhost page that lists the `.sql` files you (or your coding agents) saved recently, gives each a
 **Copy** button, and opens any query in a viewer that makes it easy to read and proofread before you run it.

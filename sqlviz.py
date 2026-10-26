@@ -1,4 +1,4 @@
-"""Break a query into its steps (CTEs + final SELECT) for the Query inbox viewer, and flag likely mistakes.
+"""Break a query into its steps (CTEs + final SELECT) for Outbox's query viewer, and flag likely mistakes.
 
 analyze(sql, name, lint=None) -> {"dialect", "error", "issues", "steps"}; each step lists what it reads, its joins,
 filters, grouping and output columns. Self-check: python sqlviz.py

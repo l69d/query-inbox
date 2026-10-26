@@ -1,18 +1,18 @@
 // ==UserScript==
-// @name         Claude Output auto-paste (__NAME__)
+// @name         Outbox auto-paste (__NAME__)
 // @namespace    claude-code-output
-// @version      1.1
-// @updateURL    http://127.0.0.1:__PORT__/claude-output-autopaste.user.js
-// @downloadURL  http://127.0.0.1:__PORT__/claude-output-autopaste.user.js
-// @description  When you click "__NAME__ ↗" in Claude Output, paste that query into this editor.
+// @version      1.2
+// @updateURL    http://127.0.0.1:__PORT__/outbox-autopaste.user.js
+// @downloadURL  http://127.0.0.1:__PORT__/outbox-autopaste.user.js
+// @description  When you click "__NAME__ ↗" in Outbox, paste that query into this editor.
 // @match        __MATCH__
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      127.0.0.1
 // @run-at       document-idle
 // ==/UserScript==
-// Served by Claude Output at /claude-output-autopaste.user.js; the @match line is filled in from --console-url.
-// On load it asks the local Claude Output server for a query handed over in the last minute (once only),
+// Served by Outbox at /outbox-autopaste.user.js; the @match line is filled in from --console-url.
+// On load it asks the local Outbox server for a query handed over in the last minute (once only),
 // waits for the editor to appear, and puts the query in it. Opening the editor yourself does nothing.
 (function () {
   "use strict";
@@ -100,9 +100,9 @@
 
   function waitAndInsert(text, path, deadline) {
     const how = insert(text);
-    if (how) { toast(`Pasted ${path.split("/").pop()} from Claude Output`); report(how); return; }
+    if (how) { toast(`Pasted ${path.split("/").pop()} from Outbox`); report(how); return; }
     if (Date.now() < deadline) return setTimeout(() => waitAndInsert(text, path, deadline), 300);
-    toast("Claude Output: couldn't find the editor on this page. The query is on your clipboard: press Cmd+V.", true);
+    toast("Outbox: couldn't find the editor on this page. The query is on your clipboard: press Cmd+V.", true);
     report(null);
   }
 

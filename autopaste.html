@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude Output · auto-paste</title>
+<title>Outbox · auto-paste</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--line:#e3e6ea;--ink:#1f2328;--muted:#6b7280;--blue:#2563eb;--green:#16a34a}
 body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
@@ -22,7 +22,7 @@ code{background:#eef0f3;padding:1px 6px;border-radius:4px;font-size:13px}
 <body>
 <main>
 <h1>Auto-paste into <span class="name">your SQL editor</span></h1>
-<p class="sub">Click <b class="btnname">↗</b> on a query in Claude Output and it opens the editor with the query already pasted in.
+<p class="sub">Click <b class="btnname">↗</b> on a query in Outbox and it opens the editor with the query already pasted in.
 A web page can't type into another site's tab on its own, so this needs a small userscript running on the editor's page.
 One-time setup, about a minute.</p>
 <div id="status" class="status no">Checking…</div>
@@ -32,11 +32,11 @@ One-time setup, about a minute.</p>
 <li><b>Let it run userscripts.</b> Open <code>chrome://extensions</code>, find Tampermonkey → <b>Details</b>, and turn on
 <b>Allow User Scripts</b> (on older Chrome versions: turn on <b>Developer mode</b> at the top right instead).</li>
 <li><b>Install the auto-paste script.</b> Tampermonkey shows the script and asks you to confirm: click <b>Install</b>.<br>
-<a class="btn" href="/claude-output-autopaste.user.js">Install the auto-paste script</a>
-<p class="muted">It only runs on <code class="match"></code>, and only talks to Claude Output on this computer
+<a class="btn" href="/outbox-autopaste.user.js">Install the auto-paste script</a>
+<p class="muted">It only runs on <code class="match"></code>, and only talks to Outbox on this computer
 (127.0.0.1). If you open the editor yourself, it does nothing.</p></li>
-<li><b>Try it:</b> back in Claude Output, click <b class="btnname">↗</b> on any query. The editor opens and the query appears in
-it, with a "Pasted … from Claude Output" note at the bottom. This page then shows ✓.</li>
+<li><b>Try it:</b> back in Outbox, click <b class="btnname">↗</b> on any query. The editor opens and the query appears in
+it, with a "Pasted … from Outbox" note at the bottom. This page then shows ✓.</li>
 </ol>
 <p class="muted">If the editor ever isn't found, the query is still on your clipboard: press Cmd+V.</p>
 <h2 style="font-size:16px;margin:28px 0 8px">What happened on the last clicks</h2>
@@ -52,18 +52,18 @@ it, with a "Pasted … from Claude Output" note at the bottom. This page then sh
   document.querySelectorAll('.btnname').forEach(e => e.textContent = name + ' ↗');
   try { const u = new URL(c.console_url); document.querySelector('.match').textContent = u.host + u.pathname; } catch {}
   const st = document.getElementById('status');
-  if (!c.console_url) { st.textContent = 'No SQL editor is set up: start Claude Output with --console-url.'; return; }
+  if (!c.console_url) { st.textContent = 'No SQL editor is set up: start Outbox with --console-url.'; return; }
   st.className = 'status ' + (c.autopaste ? 'ok' : 'no');
   st.textContent = c.autopaste ? '✓ Auto-paste is set up and has checked in.' : 'Not set up yet: follow the steps below.';
 })();
-const LABEL = { handed_over: 'Claude Output handed the query over and opened the editor',
+const LABEL = { handed_over: 'Outbox handed the query over and opened the editor',
   picked_up: 'The editor page picked it up', checked_nothing_waiting: 'The editor page checked in, nothing was waiting',
   pasted: 'Pasted into the editor', editor_not_found: "Editor page loaded, but the script couldn't find the editor" };
 async function drawLog() {
   let ev = [];
   try { ev = await (await fetch('/api/autopaste/log')).json(); } catch {}
   const el = document.getElementById('log');
-  if (!ev.length) { el.textContent = 'Nothing yet since Claude Output last started. Click the editor button on a query, then come back here.'; return; }
+  if (!ev.length) { el.textContent = 'Nothing yet since Outbox last started. Click the editor button on a query, then come back here.'; return; }
   el.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:13px">' + ev.map(e =>
     `<tr style="border-top:1px solid #e3e6ea"><td style="padding:6px 10px 6px 0;white-space:nowrap;color:#6b7280">${new Date(e.t * 1000).toLocaleTimeString()}</td>` +
     `<td style="padding:6px 0">${LABEL[e.kind] || e.kind}${e.how ? ' (' + e.how + ')' : ''}${e.path ? '<br><code>' + e.path.split('/').pop() + '</code>' : ''}` +
